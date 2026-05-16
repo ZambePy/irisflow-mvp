@@ -1,32 +1,42 @@
 # Roadmap IrisFlow MVP
 
-## Fase 1 — Base funcional (Semanas 1–2) ✅
+**Meta:** demonstração para profissionais de saúde em julho/agosto de 2026.
+
+---
+
+## Fase 1 — Base funcional ✅
+
 - [x] Estrutura de projeto
 - [x] MockGazeEngine (mouse como olhar)
 - [x] TrackingService
 - [x] UI base: Sim/Não, Frases, Teclado, Emergência
 - [x] Dwell click com feedback visual
-- [x] TTS básico PT-BR
+- [x] TTS básico PT-BR (pyttsx3)
 
-## Fase 2 — Integração EyeTrax (Semanas 3–4)
-- [ ] EyeTraxAdapter implementado
-- [ ] Troca mock ↔ eyetrax via config
-- [ ] Calibração básica (usando calibração do EyeTrax)
-- [ ] Testes com webcam real
+## Fase 2 — Integração EyeTrax real ✅
 
-## Fase 3 — Funcionalidades assistivas (Semanas 5–6)
+- [x] EyeTraxAdapter implementado (EyeTrax 0.4)
+- [x] Troca mock ↔ eyetrax via config
+- [x] Tela de calibração (usando calibração do EyeTrax)
+- [x] Cursor visual de gaze (GazeCursor)
+- [x] Botão de emergência estável
+- [x] TTS via SAPI no Windows (voz nativa, offline)
+
+## Fase 3 — Funcionalidades assistivas ⏳
+
+- [ ] Banco de frases rápidas editável pelo cuidador
 - [ ] Teclado virtual completo
-- [ ] Banco de frases rápidas editável
 - [ ] Perfis de usuário (nome, tempo de dwell, frases favoritas)
-- [ ] Botão de emergência com alerta sonoro + visual
 
-## Fase 4 — Polimento para demonstração (Semanas 7–8)
-- [ ] Calibração própria IrisFlow
-- [ ] Ajustes de acessibilidade (tamanho de botão, contraste)
+## Fase 4 — Polimento para demonstração
+
+- [ ] Calibração própria IrisFlow (independente do EyeTrax)
+- [ ] Ajustes de acessibilidade configuráveis (tamanho de botão, contraste)
 - [ ] Modo noturno
 - [ ] Log de sessão
 
-## Fase 5 — Empacotamento (após MVP)
+## Fase 5 — Empacotamento Windows
+
 - [ ] PyInstaller → .exe Windows
-- [ ] Instalador simples
-- [ ] Documentação para cuidadores
+- [ ] Instalador simples para cuidadores
+- [ ] Documentação para cuidadores (sem conhecimento técnico)

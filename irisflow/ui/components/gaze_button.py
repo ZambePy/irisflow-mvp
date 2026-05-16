@@ -43,7 +43,8 @@ class GazeButton(QWidget):
         self._btn = QPushButton(label)
         self._btn.setMinimumHeight(110)
         self._btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self._btn.clicked.connect(lambda: self.activated.emit(self.region_id))
+        # Não conectar clicked → activated: a ativação vem exclusivamente
+        # pelo dwell (on_dwell_completed), evitando dupla emissão do sinal.
         layout.addWidget(self._btn)
 
         # Barra de progresso dwell

@@ -16,9 +16,9 @@ Layout:
   └─────────────────────────────────────┘
 """
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QMessageBox
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton
 )
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont
 
 from irisflow.ui.components.gaze_button import GazeButton
@@ -28,6 +28,9 @@ from irisflow.core.logger import logger
 
 
 class HomeScreen(QWidget):
+    overlay_opened = pyqtSignal()
+    overlay_closed = pyqtSignal()
+
     def __init__(self, tts: TTSEngine, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._tts = tts
@@ -104,34 +107,84 @@ class HomeScreen(QWidget):
     # ── Handlers ─────────────────────────────────────────────────────────
 
     def _on_sim(self, _: str = "") -> None:
-        logger.info("[Home] SIM ativado")
+        logger.info("[Home] _on_sim chamado — falando Sim")
         self._tts.speak("Sim")
 
     def _on_nao(self, _: str = "") -> None:
-        logger.info("[Home] NÃO ativado")
+        logger.info("[Home] _on_nao chamado — falando Não")
         self._tts.speak("Não")
 
     def _on_frases(self, _: str = "") -> None:
-        logger.info("[Home] FRASES ativado")
+        logger.info("[Home] _on_frases chamado — falando Frases rápidas")
         self._tts.speak("Frases rápidas")
         # TODO Fase 3: navegar para QuickPhrasesScreen
 
     def _on_teclado(self, _: str = "") -> None:
-        logger.info("[Home] TECLADO ativado")
+        logger.info("[Home] _on_teclado chamado — falando Teclado")
         self._tts.speak("Teclado")
         # TODO Fase 3: navegar para KeyboardScreen
 
     def _on_emergencia(self, _: str = "") -> None:
-        logger.info("[Home] EMERGÊNCIA ativado")
+        logger.info("[Home] _on_emergencia chamado — falando Emergência")
         self._tts.speak("Emergência! Preciso de ajuda!")
-        msg = QMessageBox(self)
-        msg.setWindowTitle("🚨 EMERGÊNCIA")
-        msg.setText("PRECISO DE AJUDA AGORA!")
-        msg.setStyleSheet(
-            f"QMessageBox {{ background-color: {COLORS['emergency_bg']}; }}"
-            f"QLabel {{ color: {COLORS['accent_red']}; font-size: 24px; font-weight: bold; }}"
+        self._show_emergency_overlay()
+
+    def _show_emergency_overlay(self) -> None:
+        if self.findChild(QWidget, "emergencyOverlay"):
+            return
+
+        overlay = QWidget(self)
+        overlay.setObjectName("emergencyOverlay")
+        overlay.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        overlay.setStyleSheet(
+            f"QWidget#emergencyOverlay {{ background-color: {COLORS['emergency_bg']}; }}"
         )
-        msg.exec()
+        overlay.resize(self.size())
+        overlay.move(0, 0)
+        overlay.raise_()
+
+        layout = QVBoxLayout(overlay)
+        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.setSpacing(32)
+
+        title = QLabel("🚨 EMERGÊNCIA 🚨")
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        font_title = QFont()
+        font_title.setPointSize(36)
+        font_title.setBold(True)
+        title.setFont(font_title)
+        title.setStyleSheet(f"color: {COLORS['accent_red']};")
+        layout.addWidget(title)
+
+        subtitle = QLabel("PRECISO DE AJUDA AGORA!")
+        subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        font_sub = QFont()
+        font_sub.setPointSize(24)
+        font_sub.setBold(True)
+        subtitle.setFont(font_sub)
+        subtitle.setStyleSheet("color: white;")
+        layout.addWidget(subtitle)
+
+        close_btn = QPushButton("FECHAR")
+        close_btn.setFixedHeight(60)
+        font_btn = QFont()
+        font_btn.setPointSize(16)
+        font_btn.setBold(True)
+        close_btn.setFont(font_btn)
+        close_btn.setStyleSheet(
+            "QPushButton { background-color: #333333; color: white;"
+            " border-radius: 8px; padding: 8px 32px; }"
+            "QPushButton:hover { background-color: #555555; }"
+        )
+        close_btn.clicked.connect(lambda: self._close_emergency_overlay(overlay))
+        layout.addWidget(close_btn, alignment=Qt.AlignmentFlag.AlignCenter)
+
+        overlay.show()
+        self.overlay_opened.emit()
+
+    def _close_emergency_overlay(self, overlay: QWidget) -> None:
+        overlay.deleteLater()
+        self.overlay_closed.emit()
 
     # ── Interface pública para MainWindow ─────────────────────────────────
 

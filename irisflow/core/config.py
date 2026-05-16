@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 @dataclass
 class IrisFlowConfig:
     # Motor de rastreamento: "mock" ou "eyetrax"
-    tracking_engine: str = "mock"
+    tracking_engine: str = "eyetrax"
 
     # Dwell click
     dwell_time_ms: int = 1000       # tempo para ativar (ms)

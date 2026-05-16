@@ -2,6 +2,8 @@
 
 > Plataforma assistiva de comunicação por rastreamento ocular para pessoas com ELA, tetraplegia e limitações motoras severas.
 
+![Python](https://img.shields.io/badge/Python-3.11-blue?logo=python) ![PyQt6](https://img.shields.io/badge/UI-PyQt6-green) ![EyeTrax](https://img.shields.io/badge/EyeTrax-0.4-orange) ![Windows](https://img.shields.io/badge/Platform-Windows-0078D4?logo=windows)
+
 ---
 
 ## O que é o IrisFlow?
@@ -14,10 +16,20 @@ O foco do MVP é:
 - Painel Sim/Não instantâneo
 - Frases rápidas
 - Teclado virtual básico
-- Text-to-speech em português
+- Text-to-speech em português (SAPI / pyttsx3)
 - Botão de emergência
 - Perfis locais por usuário
 - Baixa fadiga ocular
+
+---
+
+## Equipe
+
+| Nome | Cargo |
+|---|---|
+| Gabriel Zambe | CEO e Desenvolvedor Full-Stack |
+| Marcus Vinicius | CTO e Desenvolvedor Full-Stack |
+| Vinicius Ferreira | CFO e Diretor de Marketing |
 
 ---
 
@@ -38,20 +50,28 @@ O EyeTrax é apenas o motor mecânico. A interface, lógica assistiva e experiê
 
 ## Primeiros passos
 
-### 1. Instalar dependências
+### 1. Criar e ativar o ambiente virtual
+
+```bash
+python -m venv .venv
+.venv\Scripts\activate   # Windows
+```
+
+### 2. Instalar dependências
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 2. Rodar o MVP (modo mock — mouse simula o olhar)
+### 3. Rodar o MVP
 
 ```bash
-cd irisflow-mvp
 python -m irisflow.app.main
 ```
 
-### 3. Como testar o dwell click
+> Por padrão inicia em modo **mock** (mouse simula o olhar). Para usar o EyeTrax real, configure `engine: eyetrax` em `irisflow/integrations/eyetrax/config.py`.
+
+### 4. Como testar o dwell click
 
 - Mova o mouse sobre um botão
 - Mantenha o cursor parado por **1 segundo**
@@ -64,10 +84,10 @@ python -m irisflow.app.main
 | Componente | Tecnologia |
 |---|---|
 | Interface desktop | PyQt6 |
-| Eye tracking | EyeTrax (via adapter) / MockGazeEngine |
-| TTS | pyttsx3 |
+| Eye tracking | EyeTrax 0.4 (via adapter) / MockGazeEngine |
+| TTS | pyttsx3 + SAPI (Windows) |
 | Perfis | JSON local |
-| Python | 3.11+ |
+| Python | 3.11 |
 | Empacotamento futuro | PyInstaller (.exe Windows) |
 
 ---
@@ -94,11 +114,13 @@ irisflow-mvp/
 
 ## Roadmap rápido
 
-- [x] Fase 1 — MockGazeEngine + UI base + dwell click
-- [ ] Fase 2 — Integração EyeTrax real
-- [ ] Fase 3 — Calibração própria IrisFlow
-- [ ] Fase 4 — Perfis de usuário + configurações
-- [ ] Fase 5 — Empacotamento Windows (.exe)
+- [x] Fase 1 — MockGazeEngine + UI base + dwell click + TTS
+- [x] Fase 2 — EyeTrax real + calibração + cursor visual + emergência estável + TTS SAPI
+- [ ] Fase 3 — Frases rápidas editáveis + teclado virtual + perfis de usuário
+- [ ] Fase 4 — Calibração própria IrisFlow + ajustes de acessibilidade
+- [ ] Fase 5 — Empacotamento Windows (.exe com PyInstaller)
+
+**Meta:** demonstração para profissionais de saúde em julho/agosto de 2026.
 
 ---
 

@@ -29,3 +29,23 @@
 
 **Decisão:** Seleção por permanência do olhar (1 segundo padrão).  
 **Motivo:** Método mais acessível e confiável para ELA/tetraplegia. Sem necessidade de piscar.
+
+## ADR-007 — SAPI como backend TTS no Windows (Fase 2)
+
+**Decisão:** No Windows, TTS usa SAPI via `win32com` em vez de pyttsx3.  
+**Motivo:** SAPI acessa diretamente as vozes instaladas no Windows, incluindo vozes PT-BR de alta qualidade, sem dependência extra. pyttsx3 permanece como fallback multiplataforma.
+
+## ADR-008 — Calibração delegada ao EyeTrax na Fase 2
+
+**Decisão:** A tela de calibração do MVP chama a rotina de calibração nativa do EyeTrax 0.4.  
+**Motivo:** Implementar calibração própria é complexo. Delegar ao EyeTrax desbloqueia o hardware real mais rápido. Calibração própria IrisFlow fica para a Fase 4.
+
+## ADR-009 — GazeCursor como overlay visual (Fase 2)
+
+**Decisão:** Um widget `GazeCursor` sobreposto à janela principal exibe a posição atual do olhar em tempo real.  
+**Motivo:** Feedback visual imediato aumenta a confiança do usuário e facilita calibração e debug sem ferramentas externas.
+
+## ADR-010 — Configuração do EyeTrax em arquivo separado
+
+**Decisão:** Parâmetros específicos do EyeTrax (device_id, fps, resolução) ficam em `integrations/eyetrax/config.py`, separados do config central.  
+**Motivo:** Isolar configuração de hardware do restante da aplicação. Facilita troca de motor de rastreamento no futuro.

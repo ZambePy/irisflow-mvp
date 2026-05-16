@@ -105,6 +105,10 @@ class DwellController(QObject):
                 return region
         return None
 
+    def reset(self) -> None:
+        """Limpa estado ativo sem remover regiões. Evita dupla ativação após dwell_completed."""
+        self._reset()
+
     def _reset(self) -> None:
         self._active_region = None
         self._dwell_start = None

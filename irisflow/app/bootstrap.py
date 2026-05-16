@@ -1,6 +1,6 @@
 """
 Bootstrap — inicializa e conecta todos os serviços do IrisFlow.
-Separa a criação de objetos do entrypoint main.py.
+Suporta engine 'mock' e 'eyetrax'.
 """
 from irisflow.core.config import config
 from irisflow.core.logger import logger
@@ -13,9 +13,11 @@ from irisflow.speech.tts import TTSEngine
 def bootstrap() -> tuple[TrackingService, DwellController, TTSEngine]:
     """
     Cria e retorna os serviços principais.
-    A UI recebe esses objetos prontos — sem saber como foram criados.
+
+    Para engine 'eyetrax': o adapter é criado mas NÃO iniciado aqui.
+    O MainWindow é responsável por pedir calibração antes de start().
     """
-    logger.info("[Bootstrap] Inicializando IrisFlow...")
+    logger.info(f"[Bootstrap] Engine: {config.tracking_engine}")
 
     engine = create_engine(config.tracking_engine)
     tracking = TrackingService(engine)
@@ -27,5 +29,5 @@ def bootstrap() -> tuple[TrackingService, DwellController, TTSEngine]:
 
     tts = TTSEngine(rate=config.tts_rate)
 
-    logger.info("[Bootstrap] Pronto.")
+    logger.info("[Bootstrap] Serviços prontos")
     return tracking, dwell, tts
