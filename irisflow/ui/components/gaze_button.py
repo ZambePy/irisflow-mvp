@@ -7,6 +7,7 @@ Registra-se automaticamente no DwellController ao ser exibido.
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QPushButton, QProgressBar
 from PyQt6.QtCore import Qt, pyqtSignal, QRect, QTimer
 from PyQt6.QtGui import QFont
+from PyQt6 import sip
 
 from irisflow.ui.theme import COLORS
 
@@ -75,8 +76,12 @@ class GazeButton(QWidget):
 
     def on_dwell_completed(self) -> None:
         self._progress.setValue(100)
-        # Flash visual de confirmação
-        QTimer.singleShot(200, lambda: self._progress.setValue(0))
+        # Flash visual de confirmação — guarda referência para evitar acesso a widget deletado
+        progress = self._progress
+        def _safe_reset():
+            if not sip.isdeleted(progress):
+                progress.setValue(0)
+        QTimer.singleShot(200, _safe_reset)
         self.activated.emit(self.region_id)
 
     def global_rect(self) -> QRect:

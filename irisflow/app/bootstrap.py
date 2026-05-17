@@ -8,9 +8,10 @@ from irisflow.tracking.factory import create_engine
 from irisflow.tracking.service import TrackingService
 from irisflow.accessibility.dwell import DwellController
 from irisflow.speech.tts import TTSEngine
+from irisflow.profiles.profile_store import ProfileStore
 
 
-def bootstrap() -> tuple[TrackingService, DwellController, TTSEngine]:
+def bootstrap() -> tuple[TrackingService, DwellController, TTSEngine, ProfileStore]:
     """
     Cria e retorna os serviços principais.
 
@@ -29,5 +30,7 @@ def bootstrap() -> tuple[TrackingService, DwellController, TTSEngine]:
 
     tts = TTSEngine(rate=config.tts_rate)
 
+    profile_store = ProfileStore()
+
     logger.info("[Bootstrap] Serviços prontos")
-    return tracking, dwell, tts
+    return tracking, dwell, tts, profile_store

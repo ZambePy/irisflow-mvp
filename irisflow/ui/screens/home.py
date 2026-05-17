@@ -30,6 +30,8 @@ from irisflow.core.logger import logger
 class HomeScreen(QWidget):
     overlay_opened = pyqtSignal()
     overlay_closed = pyqtSignal()
+    navigate_frases = pyqtSignal()
+    navigate_teclado = pyqtSignal()
 
     def __init__(self, tts: TTSEngine, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -115,14 +117,12 @@ class HomeScreen(QWidget):
         self._tts.speak("Não")
 
     def _on_frases(self, _: str = "") -> None:
-        logger.info("[Home] _on_frases chamado — falando Frases rápidas")
-        self._tts.speak("Frases rápidas")
-        # TODO Fase 3: navegar para QuickPhrasesScreen
+        logger.info("[Home] _on_frases chamado — navegando para Frases Rápidas")
+        self.navigate_frases.emit()
 
     def _on_teclado(self, _: str = "") -> None:
-        logger.info("[Home] _on_teclado chamado — falando Teclado")
-        self._tts.speak("Teclado")
-        # TODO Fase 3: navegar para KeyboardScreen
+        logger.info("[Home] _on_teclado chamado — navegando para Teclado")
+        self.navigate_teclado.emit()
 
     def _on_emergencia(self, _: str = "") -> None:
         logger.info("[Home] _on_emergencia chamado — falando Emergência")

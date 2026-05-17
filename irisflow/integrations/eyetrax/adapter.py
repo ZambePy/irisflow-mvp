@@ -119,6 +119,8 @@ class EyeTraxAdapter(BaseGazeEngine):
             "5p":        run_5_point_calibration,
             "lissajous": run_lissajous_calibration,
         }
+        if self._config.calibration_type == "dense":
+            logger.warning("[EyeTraxAdapter] Dense calibration não disponível, usando 9p")
         cal_fn = cal_map.get(self._config.calibration_type, run_9_point_calibration)
 
         try:

@@ -22,11 +22,15 @@
 - [x] Botão de emergência estável
 - [x] TTS via SAPI no Windows (voz nativa, offline)
 
-## Fase 3 — Funcionalidades assistivas ⏳
+## Fase 3 — Funcionalidades assistivas ✅
 
-- [ ] Banco de frases rápidas editável pelo cuidador
-- [ ] Teclado virtual completo
-- [ ] Perfis de usuário (nome, tempo de dwell, frases favoritas)
+- [x] Frases rápidas por contexto editáveis em JSON (dois níveis: contexto → frases)
+- [x] Teclado virtual completo com botão FALAR
+- [x] Perfis de usuário (nome, dwell, frases favoritas) com último perfil carregado automaticamente
+- [x] Modo cuidador via F10 (acesso por teclado físico, sem senha)
+- [x] Cursor de gaze vermelho limpo (sem artefatos visuais)
+- [x] Filtro kalman_ema para suavização do olhar
+- [x] Calibração dense grid 7×7 como padrão
 
 ## Fase 4 — Polimento para demonstração
 

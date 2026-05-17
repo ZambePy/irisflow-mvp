@@ -11,14 +11,16 @@
 O IrisFlow permite que pessoas com mobilidade extremamente reduzida se comuniquem usando apenas o olhar — via webcam comum, sem hardware especializado.
 
 O foco do MVP é:
-- Seleção confiável por olhar (dwell click)
+- Seleção confiável por olhar (dwell click com filtro kalman_ema)
 - Botões grandes e de alto contraste
 - Painel Sim/Não instantâneo
-- Frases rápidas
-- Teclado virtual básico
+- Frases rápidas por contexto editáveis em JSON (dois níveis)
+- Teclado virtual completo com botão FALAR
 - Text-to-speech em português (SAPI / pyttsx3)
 - Botão de emergência
-- Perfis locais por usuário
+- Perfis locais por usuário (último perfil carregado automaticamente)
+- Modo cuidador via F10 (configuração sem gaze)
+- Calibração dense grid 7×7
 - Baixa fadiga ocular
 
 ---
@@ -116,7 +118,7 @@ irisflow-mvp/
 
 - [x] Fase 1 — MockGazeEngine + UI base + dwell click + TTS
 - [x] Fase 2 — EyeTrax real + calibração + cursor visual + emergência estável + TTS SAPI
-- [ ] Fase 3 — Frases rápidas editáveis + teclado virtual + perfis de usuário
+- [x] Fase 3 — Frases rápidas por contexto (JSON) + teclado virtual com FALAR + perfis + modo cuidador F10 + kalman_ema + dense 7×7
 - [ ] Fase 4 — Calibração própria IrisFlow + ajustes de acessibilidade
 - [ ] Fase 5 — Empacotamento Windows (.exe com PyInstaller)
 

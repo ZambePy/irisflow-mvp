@@ -22,9 +22,9 @@ def main() -> None:
     app.setApplicationName("IrisFlow")
     app.setOrganizationName("IrisFlow")
 
-    tracking, dwell, tts = bootstrap()
+    tracking, dwell, tts, profile_store = bootstrap()
 
-    window = MainWindow(tracking=tracking, dwell=dwell, tts=tts)
+    window = MainWindow(tracking=tracking, dwell=dwell, tts=tts, profile_store=profile_store)
     window.show()
 
     logger.info("[Main] Janela aberta. Use o mouse para simular o olhar.")
