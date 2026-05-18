@@ -11,14 +11,22 @@ Fluxo de operação:
   4. Converte (x, y) → GazePoint → _emit_gaze() → DwellController
   5. stop() → sinaliza thread para encerrar → libera câmera
 """
+import math
 import threading
 import time
 from pathlib import Path
+
+from PyQt6.QtCore import QObject, pyqtSignal
 
 from irisflow.tracking.base import BaseGazeEngine
 from irisflow.tracking.types import GazePoint
 from irisflow.core.logger import logger
 from irisflow.integrations.eyetrax.config import EyeTraxConfig, eyetrax_config
+
+
+class _QualitySignaler(QObject):
+    """Expõe pyqtSignal sem conflito de metaclass com BaseGazeEngine/ABC."""
+    frame_quality_warning = pyqtSignal(str)
 
 
 class EyeTraxAdapter(BaseGazeEngine):
@@ -40,6 +48,18 @@ class EyeTraxAdapter(BaseGazeEngine):
         self._estimator = None
         self._kalman = None
         self._model_ready = False
+
+        # Deadzone state — mantido entre frames
+        self._deadzone_x: float = 0.0
+        self._deadzone_y: float = 0.0
+        self._deadzone_frames: int = 0
+
+        # Frame counter para throttle da verificação de qualidade
+        self._frame_count: int = 0
+
+        # Sinal Qt via objeto helper (evita conflito de metaclass com ABC)
+        self._signaler = _QualitySignaler()
+        self.frame_quality_warning = self._signaler.frame_quality_warning
 
     # ── Interface pública ─────────────────────────────────────────────────
 
@@ -214,14 +234,19 @@ class EyeTraxAdapter(BaseGazeEngine):
     def _process_frame(self, frame) -> None:
         """Extrai features, prediz gaze e emite GazePoint."""
         try:
+            self._frame_count += 1
+            if self._frame_count % 30 == 0:
+                self._check_frame_quality(frame)
+
             features, blink = self._estimator.extract_features(frame)
 
             if blink or features is None:
                 return  # ignorar blinks e frames sem rosto
 
             coords = self._estimator.predict([features])[0]
-            x, y = self._apply_filter(float(coords[0]), float(coords[1]))
-
+            x, y = float(coords[0]), float(coords[1])
+            x, y = self._apply_deadzone(x, y)
+            x, y = self._apply_filter(x, y)
             x, y = self._to_screen_pixels(x, y)
 
             self._emit_gaze(GazePoint(x=x, y=y, confidence=1.0))
@@ -253,6 +278,45 @@ class EyeTraxAdapter(BaseGazeEngine):
             ky = a * y + (1 - a) * ky
 
         return kx, ky
+
+    # ── Deadzone ──────────────────────────────────────────────────────────
+
+    def _apply_deadzone(self, x: float, y: float) -> tuple[float, float]:
+        dist = math.hypot(x - self._deadzone_x, y - self._deadzone_y)
+        if dist < self._config.deadzone_radius:
+            self._deadzone_frames += 1
+            if self._deadzone_frames < self._config.deadzone_frames:
+                return self._deadzone_x, self._deadzone_y
+            # Fixação prolongada: libera o cursor na posição atual
+            return x, y
+        # Movimento real: reset e deixa passar para o Kalman
+        self._deadzone_frames = 0
+        self._deadzone_x = x
+        self._deadzone_y = y
+        return x, y
+
+    # ── Qualidade de frame ────────────────────────────────────────────────
+
+    def _check_frame_quality(self, frame) -> bool:
+        import cv2
+        import numpy as np
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        mean = float(np.mean(gray))
+        if mean < 40:
+            logger.warning(f"[EyeTraxAdapter] Iluminação insuficiente (luminância={int(mean)})")
+            try:
+                self.frame_quality_warning.emit("Iluminação insuficiente — aproxime uma luz")
+            except Exception:
+                pass
+            return False
+        if mean > 220:
+            logger.warning(f"[EyeTraxAdapter] Luz excessiva (luminância={int(mean)})")
+            try:
+                self.frame_quality_warning.emit("Luz excessiva — evite luz direta na câmera")
+            except Exception:
+                pass
+            return False
+        return True
 
     # ── Helpers ───────────────────────────────────────────────────────────
 

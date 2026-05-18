@@ -301,6 +301,14 @@ class MainWindow(QMainWindow):
         self._update_status(f"✓ Tracking ativo ({engine})")
         logger.info(f"[MainWindow] Tracking iniciado — engine: {engine}")
 
+        if hasattr(self._tracking._engine, "frame_quality_warning"):
+            try:
+                self._tracking._engine.frame_quality_warning.connect(
+                    self._on_frame_quality_warning
+                )
+            except Exception as e:
+                logger.warning(f"[MainWindow] frame_quality_warning não conectado: {e}")
+
     def _on_dwell_progress(self, region_id: str, progress: float) -> None:
         screen = getattr(self, "_current_screen", None)
         if screen:
@@ -351,6 +359,11 @@ class MainWindow(QMainWindow):
             QTimer.singleShot(100, self._register_dwell_regions)
 
     # ── Helpers ───────────────────────────────────────────────────────────
+
+    def _on_frame_quality_warning(self, msg: str) -> None:
+        self._update_status(f"⚠ {msg}")
+        engine = self._tracking.engine_name
+        QTimer.singleShot(4000, lambda: self._update_status(f"✓ Tracking ativo ({engine})"))
 
     def _update_status(self, text: str) -> None:
         self.statusBar().showMessage(f"  IrisFlow  |  {text}")

@@ -1,46 +1,64 @@
 # Roadmap IrisFlow MVP
 
-**Meta:** demonstração para profissionais de saúde em julho/agosto de 2026.
+**Meta:** demonstração para profissionais de saúde em julho/agosto 2026.
+**Prazo final:** início de outubro de 2026.
 
----
+## Fases concluídas
 
-## Fase 1 — Base funcional ✅
+### Fase 1 ✅ — Base funcional
+MockGazeEngine, UI base, dwell click, TTS via SAPI Windows
 
-- [x] Estrutura de projeto
-- [x] MockGazeEngine (mouse como olhar)
-- [x] TrackingService
-- [x] UI base: Sim/Não, Frases, Teclado, Emergência
-- [x] Dwell click com feedback visual
-- [x] TTS básico PT-BR (pyttsx3)
+### Fase 2 ✅ — EyeTrax real
+EyeTraxAdapter, calibração dense 7x7, cursor vermelho, Kalman EMA,
+filtro Deadzone, detecção de qualidade de frame
 
-## Fase 2 — Integração EyeTrax real ✅
+### Fase 3 ✅ — Funcionalidades assistivas
+Frases rápidas por contexto (JSON editável), teclado virtual,
+perfis de usuário com modo cuidador via F10
 
-- [x] EyeTraxAdapter implementado (EyeTrax 0.4)
-- [x] Troca mock ↔ eyetrax via config
-- [x] Tela de calibração (usando calibração do EyeTrax)
-- [x] Cursor visual de gaze (GazeCursor)
-- [x] Botão de emergência estável
-- [x] TTS via SAPI no Windows (voz nativa, offline)
+## Próximas fases
 
-## Fase 3 — Funcionalidades assistivas ✅
+### Fase 4 — Polimento para demonstração
+- Calibração própria IrisFlow em PyQt6 (sem janela OpenCV separada)
+- Ajustes de acessibilidade configuráveis por perfil (tamanho de botão,
+  contraste, tempo de dwell)
+- Alerta de recalibração quando acurácia cair
+- Log de sessão por paciente (metadados anônimos — LGPD)
 
-- [x] Frases rápidas por contexto editáveis em JSON (dois níveis: contexto → frases)
-- [x] Teclado virtual completo com botão FALAR
-- [x] Perfis de usuário (nome, dwell, frases favoritas) com último perfil carregado automaticamente
-- [x] Modo cuidador via F10 (acesso por teclado físico, sem senha)
-- [x] Cursor de gaze vermelho limpo (sem artefatos visuais)
-- [x] Filtro kalman_ema para suavização do olhar
-- [x] Calibração dense grid 7×7 como padrão
+### Fase 5 — Qualidade técnica e modelo
+- Comparativo formal de modelos: Ridge Regression vs SVR vs MLP
+- Exportação ONNX Runtime + quantização INT8 (latência <30ms
+  garantida em hardware básico — Intel i3 + 8GB RAM)
+- Base sintética com augmentation para ELA (piscar reduzido,
+  microtremores, baixa iluminação)
+- Documentar model_comparison.md em /docs
 
-## Fase 4 — Polimento para demonstração
+### Fase 6 — Piloto clínico
+- Parceria com AACD ou AME para 5-10 pacientes com ELA
+- Protocolo de coleta com aprovação ética (CAAE)
+- Fine-tuning com dados reais de ELA
+- Dataset "IrisFlow-ELA-v1" documentado
+- Recalibração automática semanal
 
-- [ ] Calibração própria IrisFlow (independente do EyeTrax)
-- [ ] Ajustes de acessibilidade configuráveis (tamanho de botão, contraste)
-- [ ] Modo noturno
-- [ ] Log de sessão
+### Fase 7 — Regulação e negócio
+- Consultor regulatório ANVISA RDC 657/2022 (SaMD Classe I)
+- Log de auditoria imutável de sessões
+- Política de Privacidade e Termos de Uso (LGPD Art. 11)
+- TAM/SAM/SOM formalizado com dados do piloto
+- CAC/LTV calculado com primeiros 10 clientes
 
-## Fase 5 — Empacotamento Windows
+### Fase 8 — Empacotamento e lançamento
+- PyInstaller → .exe Windows com instalador simples
+- Landing page de vendas
+- Submissão FAPESP PIPE
+- Pitch com métricas reais de 5+ pacientes
 
-- [ ] PyInstaller → .exe Windows
-- [ ] Instalador simples para cuidadores
-- [ ] Documentação para cuidadores (sem conhecimento técnico)
+## Matriz de riscos prioritários
+
+| Risco | Nível | Mitigação |
+|---|---|---|
+| Modelo não atinge 92% em ELA real | 🔴 P1 | Dados reais AACD + augmentation ELA |
+| Latência >30ms em hardware básico | 🟠 P2 | ONNX + INT8 antes do beta |
+| Exigência ANVISA antes de clínicas | 🟠 P3 | Consultor desde Fase 7 |
+| Concorrente lança antes do MVP | 🟡 P4 | Acelerar beta + fortalecer AACD |
+| ELA progressiva — modelo não acompanha | 🟡 P6 | Recalibração semanal automática |

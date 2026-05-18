@@ -64,3 +64,23 @@
 
 **Decisão:** A grade de calibração padrão usa 49 pontos (7 colunas × 7 linhas) cobrindo toda a tela.  
 **Motivo:** Grades menores (3×3, 5×5) deixam cantos e bordas com erro de predição alto — exatamente onde ficam botões de emergência e navegação. 7×7 oferece cobertura espacial densa o suficiente para compensar variações de postura do usuário ao longo da sessão.
+
+## ADR-014 — Arquitetura canônica v1.0: MediaPipe + Ridge Regression
+
+**Contexto:** A apresentação de validação técnica apontou contradição entre slides que citavam CNN e LSTM como modelos principais e a implementação real do MVP.  
+**Decisão:** A arquitetura canônica do MVP é MediaPipe Face Mesh → extração de features oculares → Ridge Regression → Deadzone → Kalman EMA.  
+**Motivo:** Funcional, validado, inference <30ms em hardware comum (Intel i3 + 8GB RAM). CNN/MobileNetV2 e LSTM requerem dados rotulados de ELA que ainda não existem.  
+**Consequência:** CNN e LSTM são planejados para v2.0 após coleta de dados reais com parceiros clínicos (AACD). Todos os materiais do projeto devem referenciar esta decisão.
+
+## ADR-015 — Filtro Deadzone para microtremores oculares (Fase 2)
+
+**Contexto:** Pacientes com ELA apresentam tremor ocular involuntário que causava ativações acidentais de botões mesmo sem intenção de seleção.  
+**Decisão:** Inserir filtro Deadzone antes do Kalman EMA na cadeia de processamento. Raio de 12px e limiar de 25 frames parado antes de liberar o cursor.  
+**Cadeia final:** raw → Deadzone (12px, 25 frames) → Kalman EMA (α=0.2) → GazePoint.  
+**Motivo:** Cursor travado durante microtremores elimina ativações acidentais sem prejudicar fixações intencionais prolongadas (>25 frames ≈ 0,8s a 30fps).
+
+## ADR-016 — Detecção de qualidade de frame por luminância (Fase 2)
+
+**Contexto:** Iluminação ruim degrada silenciosamente a acurácia do modelo sem nenhum aviso ao usuário ou cuidador.  
+**Decisão:** Verificar luminância média do frame a cada 30 frames (~1s). Faixa aceitável: 40–220. Valores fora da faixa emitem aviso na status bar por 4 segundos.  
+**Motivo:** Emitir aviso sem interromper o tracking mantém a experiência fluida enquanto permite ao cuidador corrigir a iluminação. Verificar a cada 30 frames garante performance adequada (sem overhead por frame).

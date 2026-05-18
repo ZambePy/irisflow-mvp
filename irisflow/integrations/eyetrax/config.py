@@ -30,6 +30,10 @@ class EyeTraxConfig:
     # FPS alvo do loop de captura
     capture_fps: int = 30
 
+    # Deadzone — trava o cursor durante microtremores oculares involuntários
+    deadzone_radius: float = 12.0   # distância mínima (px) para considerar movimento real
+    deadzone_frames: int = 25       # frames parado antes de liberar o cursor
+
     # Confiança mínima — frames com blink são descartados automaticamente
     # (EyeTrax já retorna blink=True nesses casos)
 

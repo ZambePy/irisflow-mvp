@@ -116,13 +116,16 @@ irisflow-mvp/
 
 ## Roadmap rápido
 
-- [x] Fase 1 — MockGazeEngine + UI base + dwell click + TTS
-- [x] Fase 2 — EyeTrax real + calibração + cursor visual + emergência estável + TTS SAPI
-- [x] Fase 3 — Frases rápidas por contexto (JSON) + teclado virtual com FALAR + perfis + modo cuidador F10 + kalman_ema + dense 7×7
-- [ ] Fase 4 — Calibração própria IrisFlow + ajustes de acessibilidade
-- [ ] Fase 5 — Empacotamento Windows (.exe com PyInstaller)
+- [x] Fase 1 ✅ Base funcional
+- [x] Fase 2 ✅ EyeTrax real + filtros avançados
+- [x] Fase 3 ✅ Frases rápidas + teclado + perfis
+- [ ] Fase 4 ⏳ Polimento para demonstração
+- [ ] Fase 5 ⏳ Modelo e qualidade técnica
+- [ ] Fase 6 ⏳ Piloto clínico com AACD
+- [ ] Fase 7 ⏳ Regulação ANVISA + negócio
+- [ ] Fase 8 ⏳ Empacotamento + lançamento
 
-**Meta:** demonstração para profissionais de saúde em julho/agosto de 2026.
+**Meta:** demonstração para profissionais de saúde em julho/agosto 2026.
 
 ---
 
