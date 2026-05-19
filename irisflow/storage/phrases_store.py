@@ -65,7 +65,9 @@ _DEFAULT_DATA: dict = {
 class PhrasesStore:
     _PATH: Path = Path(__file__).parent / "phrases.json"
 
-    def __init__(self) -> None:
+    def __init__(self, path: Path | None = None) -> None:
+        if path is not None:
+            self._PATH = path
         self._data = self.load()
 
     def load(self) -> dict:

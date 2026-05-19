@@ -14,18 +14,19 @@ _STORE_PATH = Path(__file__).parent / "profiles.json"
 
 
 class ProfileStore:
-    def __init__(self) -> None:
+    def __init__(self, path: Path | None = None) -> None:
+        self._store_path = path if path is not None else _STORE_PATH
         self._profiles: dict[str, Profile] = {}
         self.load()
 
     # ── Persistência ──────────────────────────────────────────────────────
 
     def load(self) -> None:
-        if not _STORE_PATH.exists():
-            _STORE_PATH.write_text("[]", encoding="utf-8")
+        if not self._store_path.exists():
+            self._store_path.write_text("[]", encoding="utf-8")
             return
         try:
-            data = json.loads(_STORE_PATH.read_text(encoding="utf-8"))
+            data = json.loads(self._store_path.read_text(encoding="utf-8"))
             self._profiles = {d["id"]: self._from_dict(d) for d in data}
             logger.debug(f"[ProfileStore] {len(self._profiles)} perfis carregados")
         except Exception as e:
@@ -35,7 +36,7 @@ class ProfileStore:
     def save(self) -> None:
         try:
             data = [asdict(p) for p in self._profiles.values()]
-            _STORE_PATH.write_text(
+            self._store_path.write_text(
                 json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
             )
         except Exception as e:
