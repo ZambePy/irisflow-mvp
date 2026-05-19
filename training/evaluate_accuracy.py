@@ -124,7 +124,7 @@ def collect_predictions(
     cap,
     target_x: int,
     target_y: int,
-    screen_size: tuple[int, int],
+    window_size: tuple[int, int],
     current_pt: int = 0,
     total_pts: int = 9,
     n_samples: int = N_SAMPLES,
@@ -132,11 +132,11 @@ def collect_predictions(
 ) -> list[tuple[float, float]]:
     """
     Coleta n_samples predições válidas (sem blink, sem None).
-    Exibe ponto alvo na tela durante coleta.
-    Retorna lista de (x_pred, y_pred) em pixels de tela.
+    Exibe ponto alvo na janela OpenCV durante coleta.
+    Retorna lista de (x_pred, y_pred) em pixels da janela OpenCV.
     Retorna lista vazia se ESC for pressionado.
     """
-    sw, sh = screen_size
+    sw, sh = window_size
     canvas = np.zeros((sh, sw, 3), dtype=np.uint8)
     predictions: list[tuple[float, float]] = []
 
@@ -166,7 +166,9 @@ def collect_predictions(
             coords = estimator.predict([features])[0]
             px, py = float(coords[0]), float(coords[1])
 
-            # Escalona coordenadas normalizadas → pixels
+            # EyeTrax retorna coordenadas relativas à janela OpenCV de calibração.
+            # Se vier normalizado [0,1], escala para pixels da janela; caso
+            # contrário, usa diretamente — ambos referenciam a mesma janela.
             if 0.0 <= px <= 1.0 and 0.0 <= py <= 1.0:
                 px, py = px * sw, py * sh
 
@@ -271,11 +273,18 @@ def _interpret(mae: float) -> dict:
 # ── Benchmark principal ───────────────────────────────────────────────────────
 
 def run_benchmark(model_path: str = "irisflow_gaze_model.pkl") -> None:
+    # sw/sh = dimensões da janela OpenCV fullscreen — mesmo referencial do EyeTrax.
+    # Todos os alvos e predições são expressos neste sistema de coordenadas.
     sw, sh = get_screen_size()
-    print(f"[INFO] Tela detectada: {sw}×{sh}")
+    print(f"[INFO] Janela OpenCV: {sw}×{sh}")
+
+    # Janela fullscreen criada antes de qualquer cálculo de coordenadas
+    cv2.namedWindow(WINDOW, cv2.WINDOW_NORMAL)
+    cv2.setWindowProperty(WINDOW, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
 
     estimator = load_estimator(model_path)
     if estimator is None:
+        cv2.destroyAllWindows()
         return
 
     # Abre câmera (índice 0, fallback 1)
@@ -290,11 +299,8 @@ def run_benchmark(model_path: str = "irisflow_gaze_model.pkl") -> None:
 
     if cap is None:
         print("[ERRO] Nenhuma câmera disponível.")
+        cv2.destroyAllWindows()
         return
-
-    # Janela fullscreen
-    cv2.namedWindow(WINDOW, cv2.WINDOW_NORMAL)
-    cv2.setWindowProperty(WINDOW, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
 
     # Tela de instruções
     canvas = np.zeros((sh, sw, 3), dtype=np.uint8)
