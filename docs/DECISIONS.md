@@ -84,3 +84,20 @@
 **Contexto:** Iluminação ruim degrada silenciosamente a acurácia do modelo sem nenhum aviso ao usuário ou cuidador.  
 **Decisão:** Verificar luminância média do frame a cada 30 frames (~1s). Faixa aceitável: 40–220. Valores fora da faixa emitem aviso na status bar por 4 segundos.  
 **Motivo:** Emitir aviso sem interromper o tracking mantém a experiência fluida enquanto permite ao cuidador corrigir a iluminação. Verificar a cada 30 frames garante performance adequada (sem overhead por frame).
+
+## ADR-017 — Modelo próprio IrisGazeNet — MobileNetV2 + MLP
+
+**Contexto:** O orientador do projeto exige que o IrisFlow implemente e treine um algoritmo de ML próprio, não podendo depender exclusivamente de bibliotecas de terceiros (EyeTrax) para a estimativa de olhar.  
+**Decisão:** Implementar o **IrisGazeNet**: backbone MobileNetV2 (pré-treinado em ImageNet) + MLP de 3 camadas `[1283 → 256 → 64 → 2]` para mapear features visuais do olho + pose da cabeça em coordenadas de tela normalizadas `(x_norm, y_norm)`.  
+**Fluxo:** Pré-treino offline nos datasets MPIIGaze (213.658 amostras) e OpenEDS (12.759 imagens) → fine-tuning por paciente durante a calibração (~200 amostras, ~20 epochs, on-device).  
+**Inspiração:** GazeFollower (Zhu et al., ACM CGIT 2025) — implementação inteiramente própria, sem uso de código do paper.  
+**Fallback:** EyeTraxAdapter permanece como engine padrão durante o desenvolvimento do IrisGazeNet. A troca é feita via `tracking_engine` no perfil do paciente, sem alterar código de UI.  
+**Modelo salvo por perfil:** `irisflow/profiles/{profile_id}/gaze_model.pt`  
+**Documentação:** `docs/ML_ARCHITECTURE.md` e `docs/TRAINING_SETUP.md`
+
+## ADR-018 — Separação treino/inferência (offline vs. on-device)
+
+**Contexto:** O pré-treino do IrisGazeNet requer GPU e datasets que somam ~5GB — inviável de executar nos dispositivos dos pacientes (hardware doméstico, sem GPU dedicada).  
+**Decisão:** Os scripts de treino ficam isolados em `/training/` e são executados em ambiente separado com GPU (Google Colab T4 ou estação local). Apenas o arquivo `irisflow_base_model.pt` gerado é distribuído com o produto.  
+**Fine-tuning on-device:** A calibração por paciente (~200 amostras, 20 epochs, backbone congelado) roda on-device pois opera exclusivamente sobre a MLP — custo computacional estimado em < 30 segundos em Intel i5 sem GPU.  
+**Separação de dependências:** O ambiente de produção (`irisflow/`) não importa `torch.cuda` nem requer CUDA — inferência e fine-tuning de calibração usam apenas CPU via PyTorch CPU-only.

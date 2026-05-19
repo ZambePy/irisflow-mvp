@@ -16,3 +16,11 @@ env/
 .idea/
 .vscode/
 *.spec
+
+# ML — datasets e modelos treinados
+datasets/
+models/*.pt
+models/*.pth
+!models/.gitkeep
+training/__pycache__/
+*.pth
