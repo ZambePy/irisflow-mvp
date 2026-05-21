@@ -48,12 +48,12 @@ Webcam (30fps)
                 → Ação + TTS
 ```
 
-> Esta é a arquitetura canônica v1.0 do IrisFlow MVP.
-> CNN/LSTM são considerados para versões futuras após coleta de dados reais de pacientes com ELA.
+> Esta é a arquitetura canônica v1.0 do IrisFlow MVP (EyeTrax como engine padrão).
+> O IrisGazeNet (MobileNetV2 como extrator + SVR como algoritmo de ML treinado) está em desenvolvimento como engine própria — ver `docs/ML_ARCHITECTURE.md`, ADR-017 e ADR-019.
 
-## Decisão de Arquitetura — CNN vs LSTM
+## Decisão de Arquitetura — Engine padrão vs IrisGazeNet
 
-O IrisFlow MVP utiliza MediaPipe + Ridge Regression como arquitetura canônica v1.0. Esta decisão prioriza velocidade de entrega e funcionamento comprovado em hardware comum. CNN (MobileNetV2) e LSTM são planejados para v2.0 após coleta de dados reais de pacientes com ELA em parceria com instituições como AACD. Ver ADR-014.
+O IrisFlow MVP utiliza MediaPipe + Ridge Regression (via EyeTrax) como engine padrão na v1.0, priorizando velocidade de entrega e funcionamento comprovado em hardware comum. O modelo próprio **IrisGazeNet** usa MobileNetV2 como extrator de features (pré-treinado ImageNet, congelado) e **SVR (Support Vector Regression)** como algoritmo de ML treinado pela equipe — dois modelos separados (SVR-X e SVR-Y), inspirados no GazeFollower (Zhu et al., ACM CGIT 2025). CNN treinada do zero e LSTM não fazem parte do pipeline. Ver ADR-014, ADR-017 e ADR-019.
 
 ## Tipos próprios do IrisFlow
 

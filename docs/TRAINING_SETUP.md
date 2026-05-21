@@ -1,7 +1,7 @@
 # IrisFlow — Configuração do Ambiente de Treino
 
 Guia passo a passo para configurar o ambiente de pré-treino do IrisGazeNet.
-Este processo é executado uma vez pela equipe em ambiente com GPU — não é necessário nos dispositivos dos pacientes.
+Este processo é executado uma vez pela equipe em ambiente com CPU (GPU opcional para acelerar a extração de features) — não é necessário nos dispositivos dos pacientes.
 
 ---
 
@@ -14,6 +14,8 @@ Este processo é executado uma vez pela equipe em ambiente com GPU — não é n
 | Python | 3.11 |
 | PyTorch | >= 2.0 |
 | torchvision | >= 0.15 |
+| scikit-learn | >= 1.3 |
+| joblib | >= 1.3 |
 | albumentations | >= 1.3 |
 | opencv-python | >= 4.8 |
 | mediapipe | >= 0.10 |
@@ -26,9 +28,11 @@ Este processo é executado uma vez pela equipe em ambiente com GPU — não é n
 
 | Opção | Especificação |
 |-------|--------------|
-| Recomendado (local) | GPU NVIDIA GTX 1060 6GB+ com CUDA 11.8+ |
-| Recomendado (nuvem) | Google Colab T4 (gratuito) ou A100 (Colab Pro) |
-| Mínimo (sem GPU) | Intel i5 + 16GB RAM — treino muito lento, não recomendado |
+| Recomendado (local) | Intel i5 + 8GB RAM — suficiente; GPU acelera a extração de features mas não é obrigatória |
+| Opcional (nuvem) | Google Colab T4 (gratuito) — recomendado para extração de features mais rápida |
+| Mínimo | Intel i3 + 4GB RAM — treino SVR roda em segundos; extração de features via MobileNetV2 será mais lenta |
+
+> O SVR não usa GPU. GPU acelera apenas a etapa de extração de features pelo MobileNetV2 (~10.654 imagens MPIIGaze). Após a extração, o treino dos modelos SVR-X e SVR-Y é inteiramente em CPU e leva segundos.
 
 ---
 
@@ -51,14 +55,18 @@ datasets/MPIIGaze/
 ├── Data/
 │   ├── p00/
 │   │   ├── day01/
-│   │   │   ├── *.jpg          ← imagens 36×60px
+│   │   │   ├── *.jpg          ← imagens RGB (redimensionadas para 224×224px pelo DataLoader)
 │   │   │   └── annotation.txt ← pose + vetor de olhar
 │   │   └── ...
 │   └── p14/
-└── Evaluation Subset/
+└── Evaluation Subset/         ← 10.654 amostras anotadas utilizadas pelo IrisFlow
 ```
 
-### OpenEDS
+> O dataset completo contém 213.658 imagens, mas apenas o **Evaluation Subset / Annotation Subset** (10.654 amostras) possui anotações de gaze utilizáveis para treinar os modelos SVR. O DataLoader carrega exclusivamente esse subconjunto.
+
+### OpenEDS *(planejado — ainda não integrado)*
+
+> **Status:** OpenEDS não está integrado ao pipeline atual do IrisFlow. Requer aprovação da Meta AI — aprovação ainda não obtida. As instruções abaixo servem de referência para quando a integração for implementada.
 
 1. Solicitar acesso pelo formulário da Meta AI:
    ```
@@ -88,49 +96,51 @@ datasets/OpenEDS/
 ```
 irisflow-mvp/
 ├── training/
-│   ├── pretrain.py            ← script de pré-treino (Fase 1)
-│   ├── finetune.py            ← script de fine-tuning para teste offline
+│   ├── pretrain.py            ← extrai features com MobileNetV2 + treina SVR-X e SVR-Y
 │   ├── evaluate.py            ← métricas: MAE, acurácia de tecla, latência
-│   ├── dataset.py             ← MPIIGaze + OpenEDS DataLoader
+│   ├── dataset.py             ← MPIIGaze DataLoader (Annotation Subset: 10.654 amostras)
 │   ├── augmentation.py        ← pipeline Albumentations para ELA
-│   ├── model.py               ← IrisGazeNet (MobileNetV2 + MLP)
+│   ├── model.py               ← IrisGazeNet (MobileNetV2 como extrator + SVR)
 │   └── config.yaml            ← hiperparâmetros centralizados
 │
 ├── datasets/                  ← NÃO commitado (.gitignore)
 │   ├── MPIIGaze/
-│   └── OpenEDS/
+│   └── OpenEDS/               ← planejado; não integrado ainda
 │
 └── models/                    ← NÃO commitado (.gitignore)
     ├── .gitkeep
-    └── irisflow_base_model.pt ← gerado pelo pretrain.py
+    ├── svr_x_base.pkl         ← SVR-X gerado pelo pretrain.py
+    └── svr_y_base.pkl         ← SVR-Y gerado pelo pretrain.py
 ```
 
 ---
 
-## Hiperparâmetros Iniciais
+## Hiperparâmetros
 
 Arquivo: `training/config.yaml`
 
 ```yaml
-# Backbone
+# Backbone (extrator de features — congelado, NÃO treinado pela equipe)
 backbone: mobilenet_v2
 pretrained: true            # carrega pesos ImageNet do torchvision
+backbone_frozen: true       # backbone permanece congelado durante todo o processo
 
-# Arquitetura MLP
-# input = features(1280) + pose(3) = 1283
-mlp_layers: [1283, 256, 64, 2]
+# Vetor de entrada para o SVR
+# features MobileNetV2(1280) + pose MediaPipe(3) = 1283 dimensões
+feature_dim: 1283
 
-# Otimização — pré-treino
-learning_rate: 1.0e-4
-batch_size: 64
-epochs_pretrain: 30
-optimizer: AdamW
-scheduler: CosineAnnealingLR
-loss: MSELoss
+# SVR — algoritmo de ML treinado pela equipe
+# Dois modelos separados: SVR-X (eixo horizontal) e SVR-Y (eixo vertical)
+svr_kernel: rbf
+svr_C: 10.0                 # parâmetro de regularização
+svr_gamma: scale            # kernel RBF: 'scale' = 1 / (n_features * X.var())
+svr_epsilon: 0.01           # margem de erro tolerada na regressão
 
-# Otimização — fine-tuning por paciente
-epochs_finetune: 20
-lr_finetune: 1.0e-4        # igual ao pré-treino; backbone congelado
+# Split (Annotation Subset — 10.654 amostras anotadas)
+# Treino: 9.067 | Validação: 972 | Teste: 615
+split_train: 9067
+split_val: 972
+split_test: 615
 
 # Augmentation
 augmentation: true
@@ -142,21 +152,21 @@ gauss_var_limit: [10, 50]   # GaussNoise
 
 # Paths
 dataset_mpii: datasets/MPIIGaze/
-dataset_openeds: datasets/OpenEDS/
-output_model: models/irisflow_base_model.pt
+output_svr_x: models/svr_x_base.pkl
+output_svr_y: models/svr_y_base.pkl
 ```
 
 ---
 
 ## Métricas de Avaliação
 
-As métricas são calculadas pelo script `training/evaluate.py` sobre o conjunto de validação do MPIIGaze (hold-out 10%).
+As métricas são calculadas pelo script `training/evaluate.py` sobre o conjunto de teste do MPIIGaze Annotation Subset (615 amostras, nunca vistas durante o treino).
 
 | Métrica | Descrição | Meta |
 |---------|-----------|------|
 | MAE em pixels | Erro médio absoluto entre ponto predito e ponto real na tela | < 50px |
 | Acurácia de tecla (grid 4×4) | % de acertos ao mapear coordenada predita para célula correta em grade 4 colunas × 4 linhas | ≥ 88% |
-| Latência de inferência | Tempo médio de um forward pass completo (crop → MLP → coordenada) em CPU i5 | < 30ms |
+| Latência de inferência | Tempo médio de um forward pass completo (crop → MobileNetV2 → SVR → coordenada) em CPU i5 | < 30ms |
 
 ### Como interpretar os resultados
 
@@ -170,19 +180,16 @@ As métricas são calculadas pelo script `training/evaluate.py` sobre o conjunto
 
 ```bash
 # 1. Instalar dependências (ambiente virtual recomendado)
-pip install torch torchvision albumentations opencv-python mediapipe numpy pandas matplotlib pyyaml
+pip install torch torchvision scikit-learn joblib albumentations opencv-python mediapipe numpy pandas matplotlib pyyaml
 
-# 2. Verificar GPU disponível
+# 2. (Opcional) Verificar GPU disponível para extração de features mais rápida
 python -c "import torch; print(torch.cuda.is_available())"
 
-# 3. Executar pré-treino (Fase 1)
+# 3. Executar pré-treino: extrai features com MobileNetV2 + treina SVR-X e SVR-Y
 python training/pretrain.py --config training/config.yaml
 
-# 4. Avaliar o modelo gerado
-python training/evaluate.py --model models/irisflow_base_model.pt
-
-# 5. (Opcional) Testar fine-tuning offline com amostras sintéticas
-python training/finetune.py --base models/irisflow_base_model.pt --samples 200
+# 4. Avaliar os modelos SVR gerados no conjunto de teste (615 amostras)
+python training/evaluate.py --svr_x models/svr_x_base.pkl --svr_y models/svr_y_base.pkl
 ```
 
 ---
@@ -190,5 +197,5 @@ python training/finetune.py --base models/irisflow_base_model.pt --samples 200
 ## Notas de Segurança e Privacidade
 
 - Os datasets MPIIGaze e OpenEDS **não devem ser commitados** no repositório — estão no `.gitignore`.
-- Modelos `.pt` também ficam fora do git — o arquivo `irisflow_base_model.pt` será distribuído separadamente (release ou download automático).
-- Dados de calibração dos pacientes (`profiles/{id}/gaze_model.pt`) são armazenados apenas localmente no dispositivo do paciente — nunca enviados a servidores.
+- Modelos `.pkl` também ficam fora do git — os arquivos `svr_x_base.pkl` e `svr_y_base.pkl` serão distribuídos separadamente (release ou download automático).
+- Dados de calibração dos pacientes (`profiles/{id}/svr_x.pkl` e `svr_y.pkl`) são armazenados apenas localmente no dispositivo do paciente — nunca enviados a servidores.

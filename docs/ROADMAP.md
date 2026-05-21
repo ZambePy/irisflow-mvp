@@ -26,7 +26,7 @@ perfis de usuário com modo cuidador via F10
 - Log de sessão por paciente (metadados anônimos — LGPD)
 
 ### Fase 5 — Qualidade técnica e modelo
-- Comparativo formal de modelos: Ridge Regression vs SVR vs MLP
+- Comparativo formal de modelos: SVR (IrisGazeNet) vs Ridge Regression (EyeTrax baseline)
 - Exportação ONNX Runtime + quantização INT8 (latência <30ms
   garantida em hardware básico — Intel i3 + 8GB RAM)
 - Base sintética com augmentation para ELA (piscar reduzido,

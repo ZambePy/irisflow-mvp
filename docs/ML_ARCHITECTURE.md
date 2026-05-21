@@ -2,9 +2,9 @@
 
 ## Visão Geral
 
-O IrisFlow implementa um pipeline de gaze estimation em três fases, inspirado na arquitetura do GazeFollower (Zhu et al., ACM CGIT 2025), porém com modelo próprio treinado do zero pela equipe IrisFlow.
+O IrisFlow implementa um pipeline de gaze estimation em três fases, inspirado na arquitetura do GazeFollower (Zhu et al., ACM CGIT 2025).
 
-O modelo é chamado **IrisGazeNet** e combina um backbone MobileNetV2 pré-treinado em ImageNet com uma MLP de três camadas para mapear features visuais do olho + pose da cabeça em coordenadas de tela normalizadas.
+O pipeline é chamado **IrisGazeNet**. O **algoritmo de Machine Learning treinado pela equipe é o SVR (Support Vector Regression)** — dois modelos separados, SVR-X e SVR-Y, que mapeiam um vetor de features visuais para coordenadas de tela. O MobileNetV2 é utilizado apenas como extrator de features pré-treinado (pesos ImageNet, congelados) — a equipe não treina o backbone.
 
 ---
 
@@ -14,38 +14,40 @@ O modelo é chamado **IrisGazeNet** e combina um backbone MobileNetV2 pré-trein
 
 | Item | Detalhe |
 |------|---------|
-| Datasets | MPIIGaze (213.658 amostras) + OpenEDS (12.759 imagens) |
-| Backbone | MobileNetV2 pré-treinado em ImageNet |
-| MLP | features(1280) + pose(3) → 256 → 64 → 2 (x\_norm, y\_norm) |
-| Output | `models/irisflow_base_model.pt` |
-| Ambiente | GPU recomendada (Google Colab T4 ou local ≥ GTX 1060 6GB) |
+| Dataset | MPIIGaze — Annotation Subset: **10.654 amostras** (de 213.658 imagens totais) |
+| Backbone | MobileNetV2 pré-treinado em ImageNet (congelado — não treinado pela equipe) |
+| Algoritmo de ML | **SVR-X e SVR-Y** — treinados nas 9.067 amostras de treino |
+| Split | Treino: 9.067 / Validação: 972 / Teste: 615 |
+| Output | `models/svr_x_base.pkl` e `models/svr_y_base.pkl` |
+| Ambiente | CPU suficiente — SVR treina em segundos |
 | Script | `training/pretrain.py` |
 
-O backbone MobileNetV2 extrai um vetor de 1280 features do crop do olho. Esse vetor é concatenado com os 3 ângulos de pose da cabeça (yaw, pitch, roll) fornecidos pelo MediaPipe Face Mesh, resultando em um vetor de entrada de 1283 dimensões para a MLP.
+O backbone MobileNetV2 extrai um vetor de 1.280 features do crop do olho (224×224px, RGB). Esse vetor é concatenado com os 3 ângulos de pose da cabeça (yaw, pitch, roll) fornecidos pelo MediaPipe Face Mesh, resultando em um vetor de entrada de 1.283 dimensões para os modelos SVR.
 
-### Fase 2 — Fine-tuning por paciente (executado na calibração)
+### Fase 2 — Calibração por paciente (executado no dispositivo)
 
 | Item | Detalhe |
 |------|---------|
 | Dados | ~200 amostras coletadas durante calibração (~60 segundos) |
-| Base | Modelo `irisflow_base_model.pt` carregado e fine-tuned |
-| Learning rate | 1e-4 (baixo, para preservar o pré-treino) |
-| Epochs | 20 |
-| Output | `irisflow/profiles/{profile_id}/gaze_model.pt` |
+| Backbone | MobileNetV2 (congelado) — extrai features do crop do olho |
+| Algoritmo | **SVR-X e SVR-Y** — retreinados com os dados de calibração do paciente |
+| Output | `irisflow/profiles/{profile_id}/svr_x.pkl` e `svr_y.pkl` |
 | Ambiente | On-device, durante a tela de calibração do IrisFlow |
+| Tempo de treino | < 5 segundos em Intel i5 sem GPU |
 
-O fine-tuning adapta os pesos da MLP às características individuais do paciente (geometria facial, postura habitual, iluminação do ambiente). O backbone permanece congelado nesta fase para evitar overfitting com poucas amostras.
+O SVR é retreinado inteiramente com os dados de calibração de cada paciente. O backbone permanece congelado — não há retropropagação nem ajuste de pesos de rede neural.
 
 ### Fase 3 — Inferência em tempo real
 
 ```
 Webcam
   → frame (BGR)
-  → MediaPipe Face Mesh
-  → crop 224×224 do olho esquerdo/direito
-  → MobileNetV2 → vetor 1280 features
-  → concat pose (yaw, pitch, roll) → vetor 1283
-  → MLP → (x_norm, y_norm) ∈ [0.0, 1.0]
+  → MediaPipe Face Mesh (478 landmarks)
+  → crop 224×224 do olho esquerdo/direito (RGB)
+  → MobileNetV2 (congelado) → vetor 1.280 features
+  → concat pose (yaw, pitch, roll) → vetor 1.283
+  → SVR-X → x_norm ∈ [0.0, 1.0]
+  → SVR-Y → y_norm ∈ [0.0, 1.0]
   → desnormalizar: x = x_norm × screen_width
                    y = y_norm × screen_height
   → Deadzone (12px, 25 frames)
@@ -58,13 +60,30 @@ Webcam
 
 ---
 
-## Por que MobileNetV2 + MLP
+## Por que SVR
+
+- **Robusto com poucos dados:** SVR com kernel RBF generaliza bem com ~200 amostras — exatamente o volume coletado em 60 segundos de calibração. Modelos neurais exigiriam ordens de magnitude mais dados para convergir.
+- **Treino rápido on-device:** SVR treina em segundos em CPU comum (Intel i5), viabilizando re-calibração a qualquer momento sem GPU.
+- **Dois modelos independentes (SVR-X e SVR-Y):** Permite otimização e debug independentes de cada eixo — padrão adotado pelo GazeFollower.
+- **Comparável ao baseline:** O EyeTrax usa Ridge Regression para calibração; o SVR é a escolha natural como próximo passo — mesma família de modelos lineares generalizados, com kernel não-linear como vantagem.
+- **Sem risco de overfitting na calibração:** Com backbone congelado e SVR treinado em ~200 pontos, o modelo pessoal do paciente não colapsa por excesso de capacidade.
+
+---
+
+## Por que MobileNetV2 como backbone
 
 - **Transfer learning de ImageNet** elimina a necessidade de treinar um backbone do zero — economiza semanas de GPU e dados.
-- **Inference < 10ms em CPU** comum — MobileNetV2 foi projetado para edge/mobile, adequado ao hardware dos pacientes.
-- **Arquitetura validada** em literatura de gaze estimation; complexidade comparável ao MGazeNet do GazeFollower.
-- **Fine-tuning simples** — congelar o backbone e retreinar apenas a MLP é seguro com poucas amostras de calibração.
-- **Footprint pequeno** — modelo `.pt` < 20MB, adequado para distribuição embutida no instalador.
+- **Inference < 10ms em CPU** comum — projetado para edge/mobile, adequado ao hardware dos pacientes.
+- **Footprint pequeno** — pesos < 14MB, adequado para distribuição embutida no instalador.
+- **Separação clara de responsabilidades:** backbone extrai features visuais (pré-treinado), SVR aprende o mapeamento olhar → tela (treinado pela equipe).
+
+---
+
+## Inspiração — GazeFollower
+
+A modelagem de ML do IrisFlow é inspirada no GazeFollower (Zhu et al., ACM CGIT 2025), que usa um backbone CNN para extração de features seguido de SVR para calibração personalizada. O IrisFlow replica essa abordagem com backbone próprio (MobileNetV2) e SVR, sem usar o modelo proprietário MGazeNet de 32M imagens do GazeFollower (licença não-comercial).
+
+A principal diferença é de escala: o GazeFollower pré-treina o MGazeNet com 32 milhões de imagens e usa o SVR apenas para calibração final. O IrisFlow usa o MobileNetV2 (pré-treinado em ImageNet) e treina o SVR tanto no MPIIGaze Annotation Subset (9.067 amostras de treino) quanto na calibração individual (~200 amostras).
 
 ---
 
@@ -74,20 +93,24 @@ Webcam
 
 | Atributo | Valor |
 |----------|-------|
-| Amostras | 213.658 |
+| Imagens totais | 213.658 |
+| **Amostras anotadas (Annotation Subset)** | **10.654** |
+| Split (Annotation Subset) | Treino: 9.067 / Validação: 972 / Teste: 615 |
 | Participantes | 15 (25 dias cada) |
-| Formato de imagem | 36×60px, escala de cinza |
+| Formato de imagem | RGB, redimensionadas para **224×224px** antes do MobileNetV2 |
 | Anotações | pose da cabeça (3 ângulos) + vetor de olhar (yaw, pitch) |
-| Uso no IrisFlow | Treino principal do mapeamento olhar → coordenada de tela |
+| Uso no IrisFlow | Treino dos SVR base (SVR-X e SVR-Y offline) |
 | Referência | Zhang et al., CVPR 2015 |
 
-### OpenEDS — Meta AI
+> O dataset completo tem 213.658 imagens, mas apenas o **Annotation Subset** (10.654 amostras) possui anotações de gaze utilizáveis para treinar os modelos SVR. Os números de treino/validação/teste referem-se exclusivamente ao Annotation Subset.
+
+### OpenEDS — Meta AI *(planejado — ainda não integrado)*
 
 | Atributo | Valor |
 |----------|-------|
 | Imagens | 12.759 anotadas pixel a pixel |
 | Anotações | Segmentação de íris, pupila e esclera |
-| Uso no IrisFlow | Pré-treino da localização da íris no backbone (Fase 1) |
+| Status | **Planejado — requer aprovação da Meta. Não integrado ao pipeline atual.** |
 | Acesso | Requer aprovação: https://ai.meta.com/datasets/open-eds/ |
 | Referência | Garbin et al., Meta AI 2019 |
 
@@ -113,13 +136,12 @@ Todas as transformações são implementadas com a biblioteca **Albumentations**
 
 ```
 irisflow-mvp/
-├── training/                              ← ambiente offline, requer GPU
-│   ├── pretrain.py                        ← pré-treino nos datasets públicos
-│   ├── finetune.py                        ← fine-tuning de teste offline
+├── training/                              ← ambiente offline, CPU suficiente
+│   ├── pretrain.py                        ← treino do SVR base no MPIIGaze
 │   ├── evaluate.py                        ← métricas: MAE, acurácia de tecla
-│   ├── dataset.py                         ← DataLoader MPIIGaze + OpenEDS
+│   ├── dataset.py                         ← DataLoader MPIIGaze
 │   ├── augmentation.py                    ← pipeline Albumentations
-│   ├── model.py                           ← IrisGazeNet (MobileNetV2 + MLP)
+│   ├── model.py                           ← IrisGazeNet (MobileNetV2 + SVR)
 │   └── config.yaml                        ← hiperparâmetros
 │
 ├── irisflow/integrations/irisgazenet/     ← adapter do modelo próprio
@@ -129,14 +151,15 @@ irisflow-mvp/
 │   └── adapter.py                         ← EyeTraxAdapter (atual/padrão)
 │
 └── irisflow/profiles/{profile_id}/
-    └── gaze_model.pt                      ← modelo fine-tuned por paciente
+    ├── svr_x.pkl                          ← SVR-X calibrado por paciente
+    └── svr_y.pkl                          ← SVR-Y calibrado por paciente
 ```
 
 ---
 
 ## Decisão de Fallback
 
-Durante o MVP, enquanto o modelo próprio está sendo desenvolvido, o `EyeTraxAdapter` permanece como engine padrão. A troca será feita via `EngineFactory` no arquivo de configuração do perfil:
+Durante o MVP, enquanto o modelo próprio está sendo validado, o `EyeTraxAdapter` permanece como engine padrão. A troca será feita via `EngineFactory` no arquivo de configuração do perfil:
 
 ```yaml
 # perfil atual (fallback)

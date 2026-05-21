@@ -28,10 +28,10 @@ condição de iluminação.
 - Mais citado em literatura de gaze estimation com webcam comum
 
 **Características:**
-- 213.658 amostras
+- 213.658 imagens totais; **10.654 amostras no Annotation Subset** (com anotações de gaze utilizáveis)
 - 15 participantes, coleta ao longo de 25 dias cada
-- Formato: imagem do olho 36×60px + pose da cabeça (yaw, pitch) +
-  vetor de olhar (gaze direction)
+- Formato: imagens RGB, redimensionadas para **224×224px** antes do MobileNetV2
+- Anotações: pose da cabeça (yaw, pitch, roll) + vetor de olhar (gaze direction)
 - Condições reais: variação de iluminação, ângulo de cabeça, distância
 
 **Limitações para ELA:**
@@ -41,9 +41,11 @@ condição de iluminação.
 - Sem fadiga ocular
 
 **Uso no pipeline:**
-Pré-treino do IrisGazeNet — backbone aprende a extrair features
-oculares em condições de webcam real. Não é usado para fine-tuning
-por paciente.
+Treino offline dos modelos SVR base (SVR-X e SVR-Y) do IrisGazeNet —
+9.067 amostras de treino do Annotation Subset. O MobileNetV2 extrai
+features de cada imagem (congelado); o SVR aprende o mapeamento
+features → coordenada de tela. Não é usado no retreino por paciente
+(este usa os ~200 pontos da calibração individual).
 
 **Download:**
 https://www.mpi-inf.mpg.de/departments/computer-vision-and-machine-learning/research/gaze-based-human-computer-interaction/appearance-based-gaze-estimation-in-the-wild
@@ -61,22 +63,22 @@ datasets/MPIIGaze/
 └── Evaluation Subset/
 ```
 
-**Split utilizado:**
-- 80% treino (p00–p11)
-- 10% validação (p12–p13)
-- 10% teste (p14) — nunca visto durante treino
+**Split utilizado (Annotation Subset — 10.654 amostras):**
+- Treino: 9.067 amostras
+- Validação: 972 amostras
+- Teste: 615 amostras — nunca visto durante treino
 
 ---
 
 ### Por que NÃO usamos outros datasets como principal
 
-**OpenEDS (Meta AI):**
+**OpenEDS (Meta AI) — planejado, ainda não integrado:**
 - Capturado em headset de realidade virtual
 - Condições artificiais e controladas — nada a ver com webcam
-- Requer aprovação da Meta (demora semanas)
+- Requer aprovação da Meta (demora semanas) — aprovação ainda não obtida
 - Headset é inutilizável para paciente acamado com ELA
-- Uso limitado: pode ajudar na segmentação de íris como pré-treino
-  auxiliar se aprovação for obtida
+- Uso potencial: segmentação de íris como pré-treino auxiliar, se aprovação for obtida
+- **Status: não integrado ao pipeline atual do IrisFlow**
 
 **GazeCapture (MIT):**
 - 1.5M imagens — maior que MPIIGaze
