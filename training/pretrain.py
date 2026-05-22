@@ -1,9 +1,10 @@
 """
 Pré-treino do IrisGazeEstimator no MPIIGaze Annotation Subset.
 
-Uso: python training/pretrain.py  (a partir da raiz do projeto)
+Uso: python training/pretrain.py [--augment]  (a partir da raiz do projeto)
 """
 
+import argparse
 from pathlib import Path
 import numpy as np
 import json
@@ -14,6 +15,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 from dataset import MPIIGazeDataset, get_default_transform
 from model import IrisFeatureExtractor, IrisGazeEstimator
+from augmentation import get_ela_transform
 
 
 def extract_all_features(
@@ -66,6 +68,14 @@ def calculate_metrics(
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description="Pré-treino IrisGazeNet no MPIIGaze")
+    parser.add_argument(
+        "--augment",
+        action="store_true",
+        help="Usar augmentation ELA no treino",
+    )
+    args = parser.parse_args()
+
     SCREEN_W = 1920
     SCREEN_H = 1080
     BATCH_SIZE = 32
@@ -76,6 +86,12 @@ def main() -> None:
     MODEL_PATH = Path("models/irisflow_base_model.pkl")
     REPORT_PATH = Path("models/pretrain_report.json")
 
+    if args.augment:
+        print("Augmentation ELA: ATIVO")
+    else:
+        print("Augmentation ELA: desativado")
+    print()
+
     report: dict = {}
 
     try:
@@ -85,7 +101,8 @@ def main() -> None:
         print()
 
         # 2. Datasets
-        train_ds = MPIIGazeDataset(split="train", transform=get_default_transform())
+        transform = get_ela_transform(augment=args.augment)
+        train_ds = MPIIGazeDataset(split="train", transform=transform)
         val_ds = MPIIGazeDataset(split="val", transform=get_default_transform())
         print(f"Train: {len(train_ds):,} amostras | Val: {len(val_ds):,} amostras")
         print()
@@ -143,6 +160,7 @@ def main() -> None:
         report = {
             "timestamp": datetime.now().isoformat(),
             "dataset": "MPIIGaze Annotation Subset",
+            "augmentation_ela": args.augment,
             "n_train": len(train_ds),
             "n_val": len(val_ds),
             "screen_size": [SCREEN_W, SCREEN_H],
