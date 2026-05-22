@@ -12,7 +12,7 @@ def create_engine(engine_type: str = "mock") -> BaseGazeEngine:
     Retorna o engine de rastreamento correto.
 
     Args:
-        engine_type: "mock" | "eyetrax"
+        engine_type: "mock" | "eyetrax" | "irisgazenet"
 
     Returns:
         Instância de BaseGazeEngine pronta para uso.
@@ -27,7 +27,12 @@ def create_engine(engine_type: str = "mock") -> BaseGazeEngine:
         logger.info("[EngineFactory] Criando EyeTraxAdapter")
         return EyeTraxAdapter()
 
+    if engine_type == "irisgazenet":
+        from irisflow.integrations.irisgazenet.adapter import IrisGazeNetAdapter
+        logger.info("[EngineFactory] Criando IrisGazeNetAdapter")
+        return IrisGazeNetAdapter()
+
     raise ValueError(
         f"Engine desconhecido: '{engine_type}'. "
-        f"Opções válidas: 'mock', 'eyetrax'"
+        f"Opções válidas: 'mock', 'eyetrax', 'irisgazenet'"
     )

@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 
 @dataclass
 class IrisFlowConfig:
-    # Motor de rastreamento: "mock" ou "eyetrax"
+    # Opções: "mock" | "eyetrax" | "irisgazenet"
     tracking_engine: str = "eyetrax"
 
     # Dwell click
