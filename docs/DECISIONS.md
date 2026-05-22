@@ -88,7 +88,7 @@
 ## ADR-017 — Modelo próprio IrisGazeNet — MobileNetV2 (extrator) + SVR (calibração)
 
 **Contexto:** O orientador do projeto exige que o IrisFlow implemente e treine um algoritmo de ML próprio, não podendo depender exclusivamente de bibliotecas de terceiros (EyeTrax) para a estimativa de olhar.  
-**Decisão:** Implementar o **IrisGazeNet**: backbone MobileNetV2 (pré-treinado em ImageNet, congelado — não treinado pela equipe) como extrator de features + **dois modelos SVR (SVR-X e SVR-Y)** como algoritmo de ML treinado pela equipe, mapeando o vetor de features `[1.283 dimensões]` para coordenadas de tela normalizadas `(x_norm, y_norm)`.  
+**Decisão:** Implementar o **IrisGazeNet**: backbone MobileNetV2 (pré-treinado em ImageNet, congelado — não treinado pela equipe) como extrator de features + **dois modelos SVR (SVR-X e SVR-Y)** como algoritmo de ML treinado pela equipe, mapeando o vetor de features `[1.280 dimensões]` para coordenadas de tela normalizadas `(x_norm, y_norm)`.  
 **Fluxo:** Pré-treino offline no MPIIGaze Annotation Subset (10.654 amostras, split 9.067/972/615) → retreino do SVR por paciente durante a calibração (~200 amostras, on-device, < 5 segundos).  
 **Inspiração:** GazeFollower (Zhu et al., ACM CGIT 2025) — implementação inteiramente própria, sem uso de código do paper. Ver ADR-019.  
 **Fallback:** EyeTraxAdapter permanece como engine padrão durante o desenvolvimento do IrisGazeNet. A troca é feita via `tracking_engine` no perfil do paciente, sem alterar código de UI.  
@@ -112,3 +112,20 @@
 **Substitui:** qualquer menção anterior a CNN treinada do zero, LSTM ou MLP como algoritmo principal de gaze estimation no IrisFlow.  
 **MLP no código:** a MLP presente em `training/model.py` serve como fallback experimental quando não há calibração disponível — não é o algoritmo de ML central do projeto.  
 **Documentação:** `docs/ML_ARCHITECTURE.md`
+
+## ADR-021 — Remoção da MLP do pipeline principal
+
+**Contexto:** O pipeline original (`IrisGazeNet`) tinha uma MLP acoplada ao backbone (1280→256→64→2) usada como fallback quando nenhuma calibração estava disponível. O GazeFollower (Zhu et al., ACM CGIT 2025) não usa MLP — vai diretamente de features do backbone para SVR.  
+**Decisão:** Remover a MLP completamente. O pipeline passa a ter duas classes com responsabilidade única: `IrisFeatureExtractor` (backbone congelado, extração de 1280 features) e `IrisGazeEstimator` (extrator + SVR-X + SVR-Y), espelhando a arquitetura do GazeFollower.  
+**`IrisFeatureExtractor` tem 0 parâmetros treináveis** — backbone MobileNetV2 completamente congelado, nunca atualizado em nenhuma etapa.  
+**Sem fallback sem calibração:** `predict()` levanta `RuntimeError` explícito se chamado antes de `calibrate()`. A operação sem calibração não é suportada — é um erro de uso, não um estado válido.  
+**Substitui:** `IrisGazeNet` (com MLP) e `IrisGazeNetCalibrated` (wrapper separado). A API pública agora é `IrisFeatureExtractor` e `IrisGazeEstimator`.  
+**Impacto:** `training/model.py` reescrito; `dataset.py` não alterado.
+
+## ADR-020 — Remoção da pose explícita do pipeline de features
+
+**Contexto:** O MPIIGaze Annotation Subset não fornece ângulos de pitch/yaw em radianos — apenas landmarks faciais em coordenadas de pixel. A tentativa de estimar pose via MediaPipe falhou com 100% de taxa de zeros, pois os crops do olho (sem rosto completo) não são suportados pelo MediaPipe Face Mesh.  
+**Decisão:** O pipeline usa apenas as **1.280 features do MobileNetV2**, sem concatenar ângulos de pose. MLP simplifica de 1283→256→64→2 para 1280→256→64→2. `extract_features()` retorna array (B, 1280).  
+**Motivo:** Dados de pose não estão disponíveis no dataset escolhido. A calibração individual por paciente (~200 amostras on-device) captura implicitamente a pose típica do usuário no seu setup físico — sem necessidade de ângulos explícitos.  
+**Impacto:** Remoção de `pose` em `forward()`, `extract_features()` e `predict()` de `model.py`. Remoção do tensor de pose de `__getitem__()` e `get_stats()` em `dataset.py`.  
+**Alternativa futura:** MPIIFaceGaze (subconjunto normalizado do MPIIGaze) fornece pose real com câmera calibrada + IMU — pode ser integrado se pose explícita for necessária para melhorar acurácia.

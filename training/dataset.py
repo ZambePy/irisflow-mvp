@@ -1,15 +1,16 @@
 """
 DataLoader do MPIIGaze para o IrisGazeNet.
 
-Fonte: Annotation Subset — único subconjunto que contém labels de gaze
-(path + 12 landmarks + gaze_x + gaze_y + valores extras).
-O "Evaluation Subset/sample list for eye image" referenciado na spec apenas
-lista pares (caminho, lado), sem coordenadas de gaze.
+Fonte: Annotation Subset — único subconjunto com labels de gaze
+(path + 12 landmarks + gaze_x + gaze_y + 2 coords extras).
+
+O Annotation Subset não fornece ângulos de pose (pitch/yaw) — apenas
+landmarks e coordenadas de gaze em pixels. O pipeline usa apenas features
+de imagem extraídas pelo MobileNetV2.
 """
 from __future__ import annotations
 
 import logging
-import math
 from pathlib import Path
 from typing import Any
 
@@ -22,24 +23,31 @@ from torchvision import transforms
 logger = logging.getLogger(__name__)
 
 _SPLIT_PARTICIPANTS: dict[str, list[str]] = {
-    "train": [f"p{i:02d}" for i in range(12)],    # p00–p11
-    "val":   [f"p{i:02d}" for i in range(12, 14)], # p12–p13
-    "test":  [f"p{i:02d}" for i in range(14, 15)], # p14
+    "train": [f"p{i:02d}" for i in range(12)],     # p00–p11
+    "val":   [f"p{i:02d}" for i in range(12, 14)],  # p12–p13
+    "test":  [f"p{i:02d}" for i in range(14, 15)],  # p14
 }
 
 _ANNOTATION_DIR = "Annotation Subset"
 
+# Formato verificado: path + 12 landmarks + gaze_x + gaze_y [+ 2 extras em pixels]
+_MIN_COLS = 15
+_COL_GAZE_X = 13
+_COL_GAZE_Y = 14
+
 
 def get_default_transform() -> transforms.Compose:
     """Retorna transform padrão compatível com MobileNetV2 (normalização ImageNet)."""
-    return transforms.Compose([
-        transforms.Resize((224, 224)),
-        transforms.ToTensor(),
-        transforms.Normalize(
-            mean=[0.485, 0.456, 0.406],
-            std=[0.229, 0.224, 0.225],
-        ),
-    ])
+    return transforms.Compose(
+        [
+            transforms.Resize((224, 224)),
+            transforms.ToTensor(),
+            transforms.Normalize(
+                mean=[0.485, 0.456, 0.406],
+                std=[0.229, 0.224, 0.225],
+            ),
+        ]
+    )
 
 
 class MPIIGazeDataset(Dataset):
@@ -85,9 +93,14 @@ class MPIIGazeDataset(Dataset):
         self.samples: list[dict[str, Any]] = []
         self._load_all()
 
+    # ------------------------------------------------------------------
+    # Carregamento de dados
+    # ------------------------------------------------------------------
+
     def _load_all(self) -> None:
         """Percorre todos os participantes e carrega suas amostras."""
         annotation_root = self.root / _ANNOTATION_DIR
+
         for participant in self.participants:
             annotation_file = annotation_root / f"{participant}.txt"
             if not annotation_file.exists():
@@ -97,10 +110,8 @@ class MPIIGazeDataset(Dataset):
                 )
                 continue
 
-            parsed = self.parse_annotation_file(annotation_file)
-            for entry in parsed:
-                # Reconstrói o caminho completo: root/Data/Original/pXX/dayYY/ZZZZ.jpg
-                img_rel = Path(entry["img_path"])  # ex.: day13/0203.jpg
+            for entry in self.parse_annotation_file(annotation_file):
+                img_rel = Path(entry["img_path"])
                 img_path = self.root / "Data" / "Original" / participant / img_rel
 
                 gaze_x, gaze_y = entry["gaze"]
@@ -109,9 +120,12 @@ class MPIIGazeDataset(Dataset):
                         "img_path": img_path,
                         "gaze_x_norm": gaze_x / self.screen_w,
                         "gaze_y_norm": gaze_y / self.screen_h,
-                        "landmarks": entry["landmarks"],
                     }
                 )
+
+    # ------------------------------------------------------------------
+    # Interface do Dataset
+    # ------------------------------------------------------------------
 
     def __len__(self) -> int:
         """Retorna o número total de amostras carregadas."""
@@ -127,88 +141,46 @@ class MPIIGazeDataset(Dataset):
         Returns:
             Dict com:
                 "image": tensor (3, 224, 224)
-                "pose":  tensor (3,)   — [yaw, pitch, roll] normalizados em [-1, 1]
                 "gaze":  tensor (2,)   — [x_norm, y_norm] em [0, 1]
         """
         sample = self.samples[idx]
+        img_path: Path = sample["img_path"]
 
         try:
-            img = Image.open(sample["img_path"]).convert("RGB")
+            img = Image.open(img_path).convert("RGB")
             image_tensor: torch.Tensor = self.transform(img)
         except Exception as exc:
             logger.warning(
                 "Imagem corrompida ignorada (%s): %s — substituída por zeros.",
-                sample["img_path"],
+                img_path,
                 exc,
             )
             image_tensor = torch.zeros(3, 224, 224)
 
-        pose = self._estimate_pose(sample["landmarks"])
         gaze = torch.tensor(
             [sample["gaze_x_norm"], sample["gaze_y_norm"]], dtype=torch.float32
         )
 
-        return {"image": image_tensor, "pose": pose, "gaze": gaze}
+        return {"image": image_tensor, "gaze": gaze}
 
-    @staticmethod
-    def _estimate_pose(landmarks: list[int]) -> torch.Tensor:
-        """
-        Estima yaw, pitch e roll a partir dos 6 landmarks faciais.
-
-        Ordem dos landmarks no modelo de 6 pontos do MPIIGaze:
-            pts[0]: canto externo do olho esquerdo
-            pts[1]: canto interno do olho esquerdo
-            pts[2]: canto interno do olho direito
-            pts[3]: canto externo do olho direito
-            pts[4]: canto esquerdo da boca
-            pts[5]: canto direito da boca
-
-        Aproximação para o MVP — sem câmera ou modelo 3D:
-            yaw   = componente horizontal da direção inter-ocular (coseno)
-            pitch = posição vertical dos olhos em relação à boca (normalizada)
-            roll  = componente vertical da direção inter-ocular (seno)
-
-        Returns:
-            Tensor (3,) com [yaw, pitch, roll] em [-1, 1].
-        """
-        pts = np.array(landmarks, dtype=np.float32).reshape(6, 2)
-
-        left_eye = pts[0:2].mean(axis=0)
-        right_eye = pts[2:4].mean(axis=0)
-        mouth_center = pts[4:6].mean(axis=0)
-
-        eye_vec = right_eye - left_eye
-        eye_length = float(np.linalg.norm(eye_vec)) + 1e-6
-        eye_mid = (left_eye + right_eye) / 2.0
-
-        # yaw: coseno do ângulo da linha inter-ocular com o eixo horizontal
-        yaw = float(np.clip(eye_vec[0] / eye_length, -1.0, 1.0))
-
-        # pitch: proporção vertical (olhos vs boca), centrada em 0
-        vert_dist = float(mouth_center[1] - eye_mid[1])
-        pitch = float(np.clip(vert_dist / (eye_length + 1e-6) - 1.5, -1.0, 1.0))
-
-        # roll: seno do ângulo da linha inter-ocular (inclinação lateral)
-        roll_rad = math.atan2(float(eye_vec[1]), float(eye_vec[0]))
-        roll = float(np.clip(roll_rad / (math.pi / 2), -1.0, 1.0))
-
-        return torch.tensor([yaw, pitch, roll], dtype=torch.float32)
+    # ------------------------------------------------------------------
+    # Parsing
+    # ------------------------------------------------------------------
 
     @staticmethod
     def parse_annotation_file(filepath: Path) -> list[dict[str, Any]]:
         """
         Parseia um arquivo pXX.txt do Annotation Subset.
 
-        Formato esperado por linha:
-            dayYY/ZZZZ.jpg x1 y1 x2 y2 x3 y3 x4 y4 x5 y5 x6 y6 gaze_x gaze_y ...
+        Formato verificado (17 colunas, todos inteiros):
+            dayYY/ZZZZ.jpg  lm1x lm1y ... lm6x lm6y  gaze_x gaze_y  extra1 extra2
 
         Args:
             filepath: Caminho absoluto para o arquivo de anotação.
 
         Returns:
             Lista de dicts com chaves:
-                "img_path"  (str)            — caminho relativo dentro de pXX/
-                "landmarks" (list[int])       — 12 valores (6 pontos × 2 coords)
+                "img_path"  (str)                 — caminho relativo dentro de pXX/
                 "gaze"      (tuple[float, float]) — (gaze_x, gaze_y) em pixels
         """
         results: list[dict[str, Any]] = []
@@ -218,20 +190,21 @@ class MPIIGazeDataset(Dataset):
                 if not line:
                     continue
                 parts = line.split()
-                # mínimo: path + 12 landmarks + gaze_x + gaze_y = 15 tokens
-                if len(parts) < 15:
+
+                if len(parts) < _MIN_COLS:
                     logger.warning(
-                        "%s linha %d: esperado ≥15 tokens, encontrado %d — ignorando.",
+                        "%s linha %d: esperado ≥%d tokens, encontrado %d — ignorando.",
                         filepath.name,
                         line_no,
+                        _MIN_COLS,
                         len(parts),
                     )
                     continue
+
                 try:
                     img_path = parts[0]
-                    landmarks = [int(v) for v in parts[1:13]]
-                    gaze_x = float(parts[13])
-                    gaze_y = float(parts[14])
+                    gaze_x = float(parts[_COL_GAZE_X])
+                    gaze_y = float(parts[_COL_GAZE_Y])
                 except ValueError as exc:
                     logger.warning(
                         "%s linha %d: erro de parse — %s — ignorando.",
@@ -240,14 +213,13 @@ class MPIIGazeDataset(Dataset):
                         exc,
                     )
                     continue
-                results.append(
-                    {
-                        "img_path": img_path,
-                        "landmarks": landmarks,
-                        "gaze": (gaze_x, gaze_y),
-                    }
-                )
+
+                results.append({"img_path": img_path, "gaze": (gaze_x, gaze_y)})
         return results
+
+    # ------------------------------------------------------------------
+    # Estatísticas
+    # ------------------------------------------------------------------
 
     def get_stats(self) -> dict[str, Any]:
         """
@@ -255,10 +227,10 @@ class MPIIGazeDataset(Dataset):
 
         Returns:
             Dict com:
-                "n_samples"     (int)
+                "n_samples"      (int)
                 "n_participants" (int)
-                "gaze_mean"     (tuple[float, float]) — (mean_x, mean_y)
-                "gaze_std"      (tuple[float, float]) — (std_x,  std_y)
+                "gaze_mean"      (tuple[float, float]) — (mean_x, mean_y)
+                "gaze_std"       (tuple[float, float]) — (std_x,  std_y)
         """
         if not self.samples:
             return {
@@ -285,21 +257,22 @@ if __name__ == "__main__":
     ds_val = MPIIGazeDataset(split="val")
     ds_test = MPIIGazeDataset(split="test")
 
-    print("MPIIGaze Dataset")
+    print("\nMPIIGaze Dataset")
     print(f"  Train: {len(ds_train):>7,} amostras (p00-p11)")
     print(f"  Val:   {len(ds_val):>7,} amostras  (p12-p13)")
     print(f"  Test:  {len(ds_test):>7,} amostras  (p14)")
 
     if len(ds_train) > 0:
         sample = ds_train[0]
+        image_t: torch.Tensor = sample["image"]
+        gaze_t: torch.Tensor = sample["gaze"]
+
         print("\nPrimeiro item:")
-        print(f"  image: {sample['image'].shape}")
-        print(f"  pose:  {sample['pose'].shape}")
-        print(f"  gaze:  {sample['gaze']}")
-        in_range = bool(
-            (sample["gaze"] >= 0.0).all() and (sample["gaze"] <= 1.0).all()
-        )
-        print(f"OK Gaze em [0, 1]: {in_range}")
+        print(f"  image: {image_t.shape}")
+        print(f"  gaze:  {gaze_t}")
+
+        gaze_in_range = bool((gaze_t >= 0.0).all() and (gaze_t <= 1.0).all())
+        print(f"OK Gaze em [0, 1]: {gaze_in_range}")
 
         stats = ds_train.get_stats()
         print("\nEstatisticas (train):")

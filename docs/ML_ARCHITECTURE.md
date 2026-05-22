@@ -22,7 +22,9 @@ O pipeline é chamado **IrisGazeNet**. O **algoritmo de Machine Learning treinad
 | Ambiente | CPU suficiente — SVR treina em segundos |
 | Script | `training/pretrain.py` |
 
-O backbone MobileNetV2 extrai um vetor de 1.280 features do crop do olho (224×224px, RGB). Esse vetor é concatenado com os 3 ângulos de pose da cabeça (yaw, pitch, roll) fornecidos pelo MediaPipe Face Mesh, resultando em um vetor de entrada de 1.283 dimensões para os modelos SVR.
+O backbone MobileNetV2 extrai um vetor de **1.280 features** do crop do olho (224×224px, RGB). Esse vetor de 1.280 dimensões é usado diretamente como entrada para os modelos SVR.
+
+> **Nota sobre pose:** O MPIIGaze Annotation Subset não fornece ângulos de pitch/yaw — apenas landmarks faciais em pixels, sem ângulos em radianos. A calibração individual por paciente captura implicitamente a pose típica do usuário no seu setup físico, tornando a pose explícita desnecessária. Ver ADR-020.
 
 ### Fase 2 — Calibração por paciente (executado no dispositivo)
 
@@ -45,7 +47,6 @@ Webcam
   → MediaPipe Face Mesh (478 landmarks)
   → crop 224×224 do olho esquerdo/direito (RGB)
   → MobileNetV2 (congelado) → vetor 1.280 features
-  → concat pose (yaw, pitch, roll) → vetor 1.283
   → SVR-X → x_norm ∈ [0.0, 1.0]
   → SVR-Y → y_norm ∈ [0.0, 1.0]
   → desnormalizar: x = x_norm × screen_width
@@ -98,7 +99,7 @@ A principal diferença é de escala: o GazeFollower pré-treina o MGazeNet com 3
 | Split (Annotation Subset) | Treino: 9.067 / Validação: 972 / Teste: 615 |
 | Participantes | 15 (25 dias cada) |
 | Formato de imagem | RGB, redimensionadas para **224×224px** antes do MobileNetV2 |
-| Anotações | pose da cabeça (3 ângulos) + vetor de olhar (yaw, pitch) |
+| Anotações | landmarks faciais (pixel) + vetor de olhar (gaze_x, gaze_y) |
 | Uso no IrisFlow | Treino dos SVR base (SVR-X e SVR-Y offline) |
 | Referência | Zhang et al., CVPR 2015 |
 

@@ -1,17 +1,16 @@
 """
-IrisGazeNet — modelo próprio do IrisFlow para gaze estimation.
+IrisFlow — pipeline de gaze estimation inspirado no GazeFollower (Zhu et al., ACM CGIT 2025).
 
 Arquitetura:
-  MobileNetV2 backbone (pré-treinado ImageNet)
-    → features (1280)
-  + pose da cabeça (yaw, pitch, roll)
-    → concatenação (1283)
-  → MLP: 1283 → 256 → 64 → 2 (x_norm, y_norm)
+  MobileNetV2 (pré-treinado ImageNet, backbone congelado)
+    → AdaptiveAvgPool2d → vetor (1280,)
+    → StandardScaler
+    → SVR-X + SVR-Y
+    → (x_pixels, y_pixels)
 
-Output: coordenadas normalizadas [0, 1] relativas à tela.
-Desnormalizar: x_pixel = x_norm * screen_width
+O backbone é exclusivamente um extrator de features — nunca atualizado.
+O SVR é o único componente treinado pela equipe IrisFlow.
 """
-import pickle
 
 import numpy as np
 import torch
@@ -19,115 +18,111 @@ import torch.nn as nn
 import torchvision.models as models
 
 
-class IrisGazeNet(nn.Module):
-    """Backbone CNN + MLP para estimativa de ponto de olhar na tela."""
+class IrisFeatureExtractor(nn.Module):
+    """
+    Extrator de features visuais baseado em MobileNetV2.
 
-    def __init__(self, pretrained: bool = True, dropout: float = 0.3) -> None:
+    Equivalente ao MGazeNet no GazeFollower: backbone pré-treinado usado
+    apenas para extração — nenhum parâmetro é treinado ou atualizado.
+    """
+
+    def __init__(self, pretrained: bool = True) -> None:
         super().__init__()
 
         backbone = models.mobilenet_v2(
             weights="IMAGENET1K_V1" if pretrained else None
         )
-        self.backbone = backbone.features
+        self.features = backbone.features
         self.pool = nn.AdaptiveAvgPool2d(1)
 
-        for param in self.backbone.parameters():
+        for param in self.parameters():
             param.requires_grad = False
 
-        self.mlp = nn.Sequential(
-            nn.Linear(1283, 256),
-            nn.ReLU(),
-            nn.Dropout(dropout),
-            nn.Linear(256, 64),
-            nn.ReLU(),
-            nn.Dropout(dropout),
-            nn.Linear(64, 2),
-            nn.Sigmoid(),
-        )
+        self.eval()
 
-    def forward(self, image: torch.Tensor, pose: torch.Tensor) -> torch.Tensor:
+    def forward(self, image: torch.Tensor) -> torch.Tensor:
         """
-        Passa imagem e pose pelo modelo e retorna coordenadas normalizadas.
+        Extrai vetor de features de um lote de imagens.
 
         Args:
             image: tensor (B, 3, 224, 224)
-            pose:  tensor (B, 3) — yaw, pitch, roll em radianos
 
         Returns:
-            tensor (B, 2) com valores em [0, 1] representando (x_norm, y_norm)
+            tensor (B, 1280) — features brutas do backbone
         """
-        features = self.pool(self.backbone(image)).flatten(1)
-        combined = torch.cat([features, pose], dim=1)
-        return self.mlp(combined)
+        return self.pool(self.features(image)).flatten(1)
 
-    def unfreeze_backbone(self, layers: int = 3) -> None:
-        """Descongela as últimas N camadas do backbone para fine-tuning."""
-        backbone_children = list(self.backbone.children())
-        for layer in backbone_children[-layers:]:
-            for param in layer.parameters():
-                param.requires_grad = True
+    def extract_numpy(self, image: torch.Tensor) -> np.ndarray:
+        """
+        Wrapper que retorna as features como array numpy.
 
-    def count_parameters(self) -> dict:
-        """Retorna contagem de parâmetros treináveis e totais."""
-        total = sum(p.numel() for p in self.parameters())
-        trainable = sum(p.numel() for p in self.parameters() if p.requires_grad)
-        return {"total": total, "trainable": trainable}
+        Útil para passar diretamente ao SVR (scikit-learn usa numpy).
+
+        Args:
+            image: tensor (B, 3, 224, 224)
+
+        Returns:
+            array numpy (B, 1280)
+        """
+        with torch.no_grad():
+            return self.forward(image).cpu().numpy()
+
+    def output_dim(self) -> int:
+        """Retorna a dimensão do vetor de features (sempre 1280)."""
+        return 1280
 
 
-class IrisGazeNetCalibrated:
+class IrisGazeEstimator:
     """
-    Wrapper que adiciona SVR de calibração sobre o IrisGazeNet.
+    Estimador completo de olhar = IrisFeatureExtractor + SVR.
 
-    Replica o padrão do GazeFollower: dois SVR separados para X e Y.
-    O backbone extrai features (1283-d) que o SVR usa para mapear
-    o olhar às coordenadas reais de tela do paciente.
+    Equivalente ao GazeFollower completo: backbone extrai features,
+    dois SVR separados mapeiam features → coordenadas de tela.
+
+    Requer calibração antes de fazer predições. Sem fallback.
     """
 
-    def __init__(self, base_model: IrisGazeNet) -> None:
-        self.base_model = base_model
+    def __init__(self, pretrained: bool = True) -> None:
+        self.extractor = IrisFeatureExtractor(pretrained=pretrained)
+
+        # Inicializados durante calibrate()
+        self.scaler = None
         self.svr_x = None
         self.svr_y = None
         self.is_calibrated: bool = False
         self.screen_w: int = 1920
         self.screen_h: int = 1080
 
-    def extract_features(
-        self, image: torch.Tensor, pose: torch.Tensor
-    ) -> np.ndarray:
-        """
-        Extrai features do backbone SEM passar pelo MLP.
-
-        Usado para coletar dados de calibração.
-
-        Args:
-            image: tensor (B, 3, 224, 224)
-            pose:  tensor (B, 3)
-
-        Returns:
-            array numpy (B, 1283)
-        """
-        with torch.no_grad():
-            features = self.base_model.pool(
-                self.base_model.backbone(image)
-            ).flatten(1)
-            combined = torch.cat([features, pose], dim=1)
-        return combined.cpu().numpy()
-
     def calibrate(
         self,
-        features: np.ndarray,
+        images: torch.Tensor,
         targets: np.ndarray,
         screen_w: int = 1920,
         screen_h: int = 1080,
-    ) -> None:
+        svr_kernel: str = "rbf",
+        svr_C: float = 10.0,
+        svr_gamma: str = "scale",
+        svr_epsilon: float = 0.1,
+    ) -> dict:
         """
-        Treina SVR com dados de calibração do paciente.
+        Treina SVR-X e SVR-Y com dados de calibração do paciente.
+
+        Processo idêntico ao GazeFollower: backbone extrai features,
+        StandardScaler normaliza, dois SVR separados aprendem o mapeamento.
 
         Args:
-            features:  (N, 1283) — saída de extract_features
-            targets:   (N, 2)    — coordenadas reais (x_pixel, y_pixel)
-            screen_w:  largura da tela em pixels
-            screen_h:  altura da tela em pixels
+            images:      tensor (N, 3, 224, 224) — frames de calibração
+            targets:     array (N, 2) — coordenadas reais (x_px, y_px)
+            screen_w:    largura da tela em pixels
+            screen_h:    altura da tela em pixels
+            svr_kernel:  kernel do SVR (padrão: 'rbf')
+            svr_C:       parâmetro de regularização C
+            svr_gamma:   parâmetro gamma do kernel
+            svr_epsilon: margem epsilon do SVR
+
+        Returns:
+            dict com mae_x, mae_y, mae_total (pixels), n_samples,
+            n_support_vectors_x, n_support_vectors_y
         """
         from sklearn.preprocessing import StandardScaler
         from sklearn.svm import SVR
@@ -135,69 +130,104 @@ class IrisGazeNetCalibrated:
         self.screen_w = screen_w
         self.screen_h = screen_h
 
+        features = self.extractor.extract_numpy(images)  # (N, 1280)
+
         self.scaler = StandardScaler()
         features_scaled = self.scaler.fit_transform(features)
 
-        self.svr_x = SVR(kernel="rbf", C=10, gamma="scale", epsilon=0.1)
-        self.svr_y = SVR(kernel="rbf", C=10, gamma="scale", epsilon=0.1)
+        self.svr_x = SVR(
+            kernel=svr_kernel, C=svr_C, gamma=svr_gamma, epsilon=svr_epsilon
+        )
+        self.svr_y = SVR(
+            kernel=svr_kernel, C=svr_C, gamma=svr_gamma, epsilon=svr_epsilon
+        )
         self.svr_x.fit(features_scaled, targets[:, 0])
         self.svr_y.fit(features_scaled, targets[:, 1])
         self.is_calibrated = True
 
-    def predict(
-        self, image: torch.Tensor, pose: torch.Tensor
-    ) -> tuple[float, float]:
+        pred_x = self.svr_x.predict(features_scaled)
+        pred_y = self.svr_y.predict(features_scaled)
+        mae_x = float(np.mean(np.abs(pred_x - targets[:, 0])))
+        mae_y = float(np.mean(np.abs(pred_y - targets[:, 1])))
+
+        return {
+            "mae_x": mae_x,
+            "mae_y": mae_y,
+            "mae_total": float(np.sqrt(mae_x**2 + mae_y**2)),
+            "n_samples": len(targets),
+            "n_support_vectors_x": len(self.svr_x.support_vectors_),
+            "n_support_vectors_y": len(self.svr_y.support_vectors_),
+        }
+
+    def predict(self, image: torch.Tensor) -> tuple[float, float]:
         """
-        Prediz coordenadas de tela em pixels.
+        Prediz coordenadas de tela para um frame de olho.
 
         Args:
-            image: tensor (1, 3, 224, 224)
-            pose:  tensor (1, 3)
+            image: tensor (1, 3, 224, 224) — frame do olho pré-processado
 
         Returns:
-            (x_pixel, y_pixel) clipados aos limites da tela
+            (x_pixels, y_pixels) clampado dentro dos limites da tela
+
+        Raises:
+            RuntimeError: se chamado antes de calibrate()
         """
         if not self.is_calibrated:
-            with torch.no_grad():
-                out = self.base_model(image, pose)[0]
-            return (
-                float(out[0]) * self.screen_w,
-                float(out[1]) * self.screen_h,
+            raise RuntimeError(
+                "IrisGazeEstimator não calibrado. "
+                "Chame calibrate() antes de predict()."
             )
-
-        features = self.extract_features(image, pose)
+        features = self.extractor.extract_numpy(image)  # (1, 1280)
         features_scaled = self.scaler.transform(features)
         x = float(self.svr_x.predict(features_scaled)[0])
         y = float(self.svr_y.predict(features_scaled)[0])
-        x = max(0, min(x, self.screen_w))
-        y = max(0, min(y, self.screen_h))
+        x = max(0.0, min(x, float(self.screen_w)))
+        y = max(0.0, min(y, float(self.screen_h)))
         return x, y
 
     def save(self, path: str) -> None:
-        """Salva modelo base + SVR + scaler em um único arquivo .pkl."""
+        """
+        Salva extrator, SVRs e scaler em um único arquivo .pkl.
+
+        Args:
+            path: caminho do arquivo de destino (ex.: 'modelo.pkl')
+        """
+        import pickle
+
         data = {
-            "model_state": self.base_model.state_dict(),
+            "extractor_state": self.extractor.state_dict(),
+            "scaler": self.scaler,
             "svr_x": self.svr_x,
             "svr_y": self.svr_y,
-            "scaler": self.scaler if hasattr(self, "scaler") else None,
             "is_calibrated": self.is_calibrated,
             "screen_w": self.screen_w,
             "screen_h": self.screen_h,
+            "feature_dim": self.extractor.output_dim(),
+            "architecture": "MobileNetV2+SVR (IrisFlow v1, inspirado GazeFollower)",
         }
         with open(path, "wb") as f:
             pickle.dump(data, f)
 
     @classmethod
-    def load(cls, path: str, pretrained: bool = False) -> "IrisGazeNetCalibrated":
-        """Carrega modelo calibrado salvo em disco."""
+    def load(cls, path: str) -> "IrisGazeEstimator":
+        """
+        Carrega modelo salvo do disco.
+
+        Args:
+            path: caminho do arquivo .pkl salvo por save()
+
+        Returns:
+            IrisGazeEstimator pronto para predição
+        """
+        import pickle
+
         with open(path, "rb") as f:
             data = pickle.load(f)
-        base = IrisGazeNet(pretrained=pretrained)
-        base.load_state_dict(data["model_state"])
-        obj = cls(base)
+        obj = cls(pretrained=False)
+        obj.extractor.load_state_dict(data["extractor_state"])
+        obj.scaler = data["scaler"]
         obj.svr_x = data["svr_x"]
         obj.svr_y = data["svr_y"]
-        obj.scaler = data.get("scaler")
         obj.is_calibrated = data["is_calibrated"]
         obj.screen_w = data["screen_w"]
         obj.screen_h = data["screen_h"]
@@ -205,25 +235,67 @@ class IrisGazeNetCalibrated:
 
 
 if __name__ == "__main__":
-    model = IrisGazeNet(pretrained=False)
-    params = model.count_parameters()
+    import tempfile
+    import os
 
-    print("IrisGazeNet")
-    print(f"  Parâmetros totais:     {params['total'] / 1e6:.1f}M")
-    print(f"  Parâmetros treináveis: {params['trainable'] / 1e3:.0f}k (só MLP — backbone congelado)")
+    # ── IrisFeatureExtractor ──────────────────────────────────────────────
+    extractor = IrisFeatureExtractor(pretrained=False)
+    total = sum(p.numel() for p in extractor.parameters())
+    trainable = sum(p.numel() for p in extractor.parameters() if p.requires_grad)
+
+    print("IrisFeatureExtractor")
+    print(f"  Parâmetros totais:     {total / 1e6:.1f}M")
+    print(f"  Parâmetros treináveis: {trainable}  (backbone completamente congelado)")
+    print(f"  Output dim: {extractor.output_dim()}")
     print()
 
-    B = 2
-    image = torch.rand(B, 3, 224, 224)
-    pose = torch.rand(B, 3)
+    # ── IrisGazeEstimator — extração ─────────────────────────────────────
+    estimator = IrisGazeEstimator(pretrained=False)
 
-    model.eval()
-    with torch.no_grad():
-        output = model(image, pose)
+    images_batch = torch.rand(4, 3, 224, 224)
+    features_out = estimator.extractor.extract_numpy(images_batch)
 
-    print("Teste forward pass:")
-    print(f"  Input image: {tuple(image.shape)}")
-    print(f"  Input pose:  {tuple(pose.shape)}")
-    print(f"  Output:      {output}")
-    in_range = bool((output >= 0).all() and (output <= 1).all())
-    print(f"  ✓ Output em [0, 1]: {in_range}")
+    print("IrisGazeEstimator")
+    print("  Teste de extração de features:")
+    print(f"    Input:  {tuple(images_batch.shape)}")
+    print(f"    Output: {features_out.shape}  (numpy array)")
+    print()
+
+    # ── Calibração com dados sintéticos ──────────────────────────────────
+    N = 50
+    images_cal = torch.rand(N, 3, 224, 224)
+    targets_cal = np.column_stack([
+        np.random.uniform(0, 1920, N),
+        np.random.uniform(0, 1080, N),
+    ])
+
+    metrics = estimator.calibrate(images_cal, targets_cal)
+
+    print("  Teste de calibração com dados sintéticos:")
+    print(f"    N={N} amostras sintéticas")
+    print("    Métricas de treino:")
+    print(f"      MAE-X: {metrics['mae_x']:.1f} px")
+    print(f"      MAE-Y: {metrics['mae_y']:.1f} px")
+    print(f"      Support vectors X: {metrics['n_support_vectors_x']}")
+    print(f"      Support vectors Y: {metrics['n_support_vectors_y']}")
+    print()
+
+    # ── Predict ──────────────────────────────────────────────────────────
+    single_frame = torch.rand(1, 3, 224, 224)
+    x_pred, y_pred = estimator.predict(single_frame)
+
+    print("  Teste de predict:")
+    print(f"    Input: {tuple(single_frame.shape)}")
+    print(f"    Output: (x={x_pred:.1f}, y={y_pred:.1f})  (coordenadas em pixels)")
+    print()
+
+    # ── Save / Load ───────────────────────────────────────────────────────
+    tmp_path = os.path.join(tempfile.gettempdir(), "test_irisgazenet.pkl")
+    estimator.save(tmp_path)
+    loaded = IrisGazeEstimator.load(tmp_path)
+    x_load, y_load = loaded.predict(single_frame)
+
+    print("  Teste de save/load:")
+    print(f"    Salvo em: {tmp_path}")
+    print(f"    Carregado com sucesso: {loaded.is_calibrated}")
+    print(f"    Predict após load: (x={x_load:.1f}, y={y_load:.1f})  (igual ao anterior)")

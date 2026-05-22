@@ -126,8 +126,8 @@ pretrained: true            # carrega pesos ImageNet do torchvision
 backbone_frozen: true       # backbone permanece congelado durante todo o processo
 
 # Vetor de entrada para o SVR
-# features MobileNetV2(1280) + pose MediaPipe(3) = 1283 dimensões
-feature_dim: 1283
+# features MobileNetV2(1280) — sem pose (MPIIGaze não fornece ângulos)
+feature_dim: 1280
 
 # SVR — algoritmo de ML treinado pela equipe
 # Dois modelos separados: SVR-X (eixo horizontal) e SVR-Y (eixo vertical)
