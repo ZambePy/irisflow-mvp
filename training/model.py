@@ -95,7 +95,7 @@ class IrisGazeEstimator:
 
     def calibrate(
         self,
-        images: torch.Tensor,
+        images: torch.Tensor | None,
         targets: np.ndarray,
         screen_w: int = 1920,
         screen_h: int = 1080,
@@ -103,6 +103,7 @@ class IrisGazeEstimator:
         svr_C: float = 10.0,
         svr_gamma: str = "scale",
         svr_epsilon: float = 0.1,
+        features: np.ndarray | None = None,
     ) -> dict:
         """
         Treina SVR-X e SVR-Y com dados de calibração do paciente.
@@ -111,7 +112,8 @@ class IrisGazeEstimator:
         StandardScaler normaliza, dois SVR separados aprendem o mapeamento.
 
         Args:
-            images:      tensor (N, 3, 224, 224) — frames de calibração
+            images:      tensor (N, 3, 224, 224) — frames de calibração;
+                         pode ser None se features já extraídas forem fornecidas
             targets:     array (N, 2) — coordenadas reais (x_px, y_px)
             screen_w:    largura da tela em pixels
             screen_h:    altura da tela em pixels
@@ -119,6 +121,7 @@ class IrisGazeEstimator:
             svr_C:       parâmetro de regularização C
             svr_gamma:   parâmetro gamma do kernel
             svr_epsilon: margem epsilon do SVR
+            features:    array (N, 1280) pré-extraído — se fornecido, pula extração
 
         Returns:
             dict com mae_x, mae_y, mae_total (pixels), n_samples,
@@ -130,7 +133,8 @@ class IrisGazeEstimator:
         self.screen_w = screen_w
         self.screen_h = screen_h
 
-        features = self.extractor.extract_numpy(images)  # (N, 1280)
+        if features is None:
+            features = self.extractor.extract_numpy(images)  # (N, 1280)
 
         self.scaler = StandardScaler()
         features_scaled = self.scaler.fit_transform(features)
