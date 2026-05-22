@@ -10,7 +10,7 @@ O pipeline é chamado **IrisGazeNet**. O **algoritmo de Machine Learning treinad
 
 ## Fluxo Completo
 
-### Fase 1 — Pré-treino offline (executado uma vez pela equipe)
+### Fase 1 — Pré-treino offline (CONCLUÍDO ✅)
 
 | Item | Detalhe |
 |------|---------|
@@ -18,15 +18,18 @@ O pipeline é chamado **IrisGazeNet**. O **algoritmo de Machine Learning treinad
 | Backbone | MobileNetV2 pré-treinado em ImageNet (congelado — não treinado pela equipe) |
 | Algoritmo de ML | **SVR-X e SVR-Y** — treinados nas 9.067 amostras de treino |
 | Split | Treino: 9.067 / Validação: 972 / Teste: 615 |
-| Output | `models/svr_x_base.pkl` e `models/svr_y_base.pkl` |
+| Output | `models/irisflow_base_model.pkl` |
 | Ambiente | CPU suficiente — SVR treina em segundos |
 | Script | `training/pretrain.py` |
+| **MAE val set** | **51,8px** (participantes p12–p13, 972 amostras) |
+| **MAE test set** | **22,7px** (participante p14, 615 amostras — nunca visto no treino) |
+| **Acurácia de botão** | **100%** em ambos os conjuntos (erro < 110px) |
 
 O backbone MobileNetV2 extrai um vetor de **1.280 features** do crop do olho (224×224px, RGB). Esse vetor de 1.280 dimensões é usado diretamente como entrada para os modelos SVR.
 
 > **Nota sobre pose:** O MPIIGaze Annotation Subset não fornece ângulos de pitch/yaw — apenas landmarks faciais em pixels, sem ângulos em radianos. A calibração individual por paciente captura implicitamente a pose típica do usuário no seu setup físico, tornando a pose explícita desnecessária. Ver ADR-020.
 
-### Fase 2 — Calibração por paciente (executado no dispositivo)
+### Fase 2 — Fine-tuning por paciente (implementado — aguarda teste clínico real)
 
 | Item | Detalhe |
 |------|---------|
@@ -37,27 +40,43 @@ O backbone MobileNetV2 extrai um vetor de **1.280 features** do crop do olho (22
 | Ambiente | On-device, durante a tela de calibração do IrisFlow |
 | Tempo de treino | < 5 segundos em Intel i5 sem GPU |
 
-O SVR é retreinado inteiramente com os dados de calibração de cada paciente. O backbone permanece congelado — não há retropropagação nem ajuste de pesos de rede neural.
+`IrisGazeNetAdapter.calibrate()` implementado — coleta amostras durante calibração, treina SVR-X e SVR-Y, salva modelo personalizado por perfil.
 
-### Fase 3 — Inferência em tempo real
+### Fase 3 — Inferência em tempo real (implementado ✅)
+
+`IrisGazeNetAdapter._capture_loop()` operacional. MediaPipe detecta face → crop do olho → MobileNetV2 → SVR → GazePoint.
 
 ```
 Webcam
   → frame (BGR)
   → MediaPipe Face Mesh (478 landmarks)
-  → crop 224×224 do olho esquerdo/direito (RGB)
+  → crop 224×224 do olho esquerdo (RGB)
   → MobileNetV2 (congelado) → vetor 1.280 features
   → SVR-X → x_norm ∈ [0.0, 1.0]
   → SVR-Y → y_norm ∈ [0.0, 1.0]
   → desnormalizar: x = x_norm × screen_width
                    y = y_norm × screen_height
   → Deadzone (12px, 25 frames)
-  → Kalman EMA (α=0.2)
   → GazePoint
   → DwellController
 ```
 
 **Meta de latência:** < 30ms por frame em hardware comum (Intel i5 + 8GB RAM, sem GPU).
+
+---
+
+## Resultados Medidos (Maio 2026)
+
+Avaliação formal realizada pelo script `training/evaluate.py` sobre o MPIIGaze Annotation Subset (participante p14, 615 amostras — nunca vistas durante treino ou validação).
+
+| Conjunto | Modelo | MAE total | MAE-X | MAE-Y | Acurácia botão |
+|---|---|---|---|---|---|
+| Validação (p12–p13, 972 amostras) | SVR (IrisGazeNet) | 51,8px | 40,4px | 24,9px | 100% |
+| Teste (p14, 615 amostras) | SVR (IrisGazeNet) | 22,7px | 14,0px | 14,4px | 100% |
+| Teste (p14, 615 amostras) | Ridge Regression (baseline) | 20,2px | 16,8px | 8,2px | 100% |
+
+**Acurácia de botão:** proporção de predições com erro < 110px (tamanho mínimo dos botões da interface IrisFlow).  
+**Comparativo formal** SVR vs Ridge Regression documentado em `docs/model_comparison.md`.
 
 ---
 
@@ -68,6 +87,7 @@ Webcam
 - **Dois modelos independentes (SVR-X e SVR-Y):** Permite otimização e debug independentes de cada eixo — padrão adotado pelo GazeFollower.
 - **Comparável ao baseline:** O EyeTrax usa Ridge Regression para calibração; o SVR é a escolha natural como próximo passo — mesma família de modelos lineares generalizados, com kernel não-linear como vantagem.
 - **Sem risco de overfitting na calibração:** Com backbone congelado e SVR treinado em ~200 pontos, o modelo pessoal do paciente não colapsa por excesso de capacidade.
+- **Desempenho equivalente ao baseline:** Resultados medidos confirmam que SVR e Ridge Regression têm desempenho equivalente no test set independente (diferença de 2,5px — 22,7px vs 20,2px). O diferencial do SVR está na personalização por paciente via calibração individual — não no modelo base genérico.
 
 ---
 

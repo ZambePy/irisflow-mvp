@@ -21,6 +21,8 @@ condição de iluminação.
 
 ### MPIIGaze (Max Planck Institute)
 
+**STATUS: ✅ Baixado e integrado**
+
 **Por que escolhemos:**
 - Capturado em laptops no dia a dia — mesmo cenário do IrisFlow
 - Maior diversidade de condições reais (iluminação, ângulo, distância)
@@ -72,13 +74,13 @@ datasets/MPIIGaze/
 
 ### Por que NÃO usamos outros datasets como principal
 
-**OpenEDS (Meta AI) — planejado, ainda não integrado:**
+**OpenEDS (Meta AI) — STATUS: ⏳ Planejado — requer aprovação da Meta AI:**
 - Capturado em headset de realidade virtual
 - Condições artificiais e controladas — nada a ver com webcam
 - Requer aprovação da Meta (demora semanas) — aprovação ainda não obtida
 - Headset é inutilizável para paciente acamado com ELA
 - Uso potencial: segmentação de íris como pré-treino auxiliar, se aprovação for obtida
-- **Status: não integrado ao pipeline atual do IrisFlow**
+- **Status: ⏳ Planejado — não integrado ao pipeline atual do IrisFlow**
 
 **GazeCapture (MIT):**
 - 1.5M imagens — maior que MPIIGaze

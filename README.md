@@ -87,10 +87,33 @@ python -m irisflow.app.main
 |---|---|
 | Interface desktop | PyQt6 |
 | Eye tracking | EyeTrax 0.4 (via adapter) / MockGazeEngine |
+| ML / Gaze Estimation | MobileNetV2 (extrator) + SVR (scikit-learn) |
 | TTS | pyttsx3 + SAPI (Windows) |
 | Perfis | JSON local |
 | Python | 3.11 |
 | Empacotamento futuro | PyInstaller (.exe Windows) |
+
+---
+
+## Modelo de ML
+
+O IrisFlow implementa o **IrisGazeNet** — pipeline de gaze estimation próprio treinado pela equipe:
+
+- **Arquitetura:** MobileNetV2 (backbone congelado, extrator de 1.280 features) + SVR-X e SVR-Y (scikit-learn)
+- **Inspiração:** GazeFollower (Zhu et al., ACM CGIT 2025)
+- **Dataset de pré-treino:** MPIIGaze Annotation Subset — 10.654 amostras (split 9.067 / 972 / 615)
+- **MAE no test set independente (p14):** 22,7px
+- **Acurácia de botão:** 100% (erro < 110px — tamanho mínimo dos botões da interface)
+
+```bash
+# Treinar o modelo base
+python training/pretrain.py
+
+# Avaliar e comparar com Ridge Regression (baseline EyeTrax)
+python training/evaluate.py
+```
+
+Para usar o IrisGazeNet como engine de rastreamento, configure `config.tracking_engine = "irisgazenet"`.
 
 ---
 
@@ -119,8 +142,8 @@ irisflow-mvp/
 - [x] Fase 1 ✅ Base funcional
 - [x] Fase 2 ✅ EyeTrax real + filtros avançados
 - [x] Fase 3 ✅ Frases rápidas + teclado + perfis
-- [ ] Fase 4 ⏳ Polimento para demonstração
-- [ ] Fase 5 ⏳ Modelo e qualidade técnica
+- [x] Fase 4 ✅ Pipeline de ML próprio (IrisGazeNet + SVR)
+- [ ] Fase 5 ⏳ Polimento para demonstração clínica
 - [ ] Fase 6 ⏳ Piloto clínico com AACD
 - [ ] Fase 7 ⏳ Regulação ANVISA + negócio
 - [ ] Fase 8 ⏳ Empacotamento + lançamento

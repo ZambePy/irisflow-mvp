@@ -107,11 +107,10 @@
 **Contexto:** A documentação anterior do projeto misturava CNN treinada do zero, LSTM e MLP como possíveis modelos de gaze estimation, gerando inconsistência apontada na avaliação dos orientadores. Era necessário definir com precisão qual algoritmo de ML é treinado e avaliado pela equipe.  
 **Decisão:** O algoritmo de ML treinado pela equipe é o **SVR (Support Vector Regression)**, com dois modelos separados: **SVR-X** (eixo horizontal) e **SVR-Y** (eixo vertical). O MobileNetV2 é utilizado apenas como extrator de features pré-treinado (pesos ImageNet, congelados) — não é treinado pela equipe e não é o algoritmo de ML do projeto.  
 **Inspiração:** GazeFollower (Zhu et al., ACM CGIT 2025), que usa a mesma separação backbone CNN (extração) + SVR (calibração personalizada).  
-**Treinamento:** O SVR é treinado em duas etapas: (1) offline no MPIIGaze Annotation Subset (9.067 amostras de treino), gerando modelos base; (2) on-device durante a calibração (~200 amostras do paciente), gerando modelos personalizados por perfil.  
-**Baseline de comparação:** Ridge Regression do EyeTrax — mesma família de modelos lineares, comparação direta e significativa academicamente.  
-**Substitui:** qualquer menção anterior a CNN treinada do zero, LSTM ou MLP como algoritmo principal de gaze estimation no IrisFlow.  
-**MLP no código:** a MLP presente em `training/model.py` serve como fallback experimental quando não há calibração disponível — não é o algoritmo de ML central do projeto.  
-**Documentação:** `docs/ML_ARCHITECTURE.md`
+**Treinamento:** O SVR é treinado em duas etapas: (1) offline no MPIIGaze Annotation Subset (9.067 amostras de treino), gerando modelos base (MAE 22,7px no test set independente); (2) on-device durante a calibração (~200 amostras do paciente), gerando modelos personalizados por perfil.  
+**Baseline de comparação:** Ridge Regression do EyeTrax — mesma família de modelos lineares, comparação direta e significativa academicamente. Resultado medido: SVR 22,7px vs Ridge 20,2px (diferença de 2,5px no test set).  
+**Substitui:** qualquer menção anterior a CNN treinada do zero, LSTM ou MLP como algoritmo principal de gaze estimation no IrisFlow. Ver ADR-021 — a MLP foi removida do pipeline.  
+**Documentação:** `docs/ML_ARCHITECTURE.md`, `docs/model_comparison.md`
 
 ## ADR-021 — Remoção da MLP do pipeline principal
 
