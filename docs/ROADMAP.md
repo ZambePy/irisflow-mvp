@@ -28,31 +28,44 @@ perfis de usuário com modo cuidador via F10
 - **Comparativo formal** SVR vs Ridge Regression documentado em `docs/model_comparison.md`
 - **ADR-020** (remoção de pose explícita) e **ADR-021** (remoção da MLP) adicionados
 
+### Fase 5 ✅ — Frontend React + Electron
+- Migração completa do PyQt6 para React 18 + Vite + Electron
+- Design system Lumina (glassmorphism, dark mode clínico, Manrope)
+- 4 telas convertidas do Stitch: Dashboard, Frases, Teclado, Calibração
+- Componentes: GazeCursor, GazeButton, GlassPanel, SideNav, TopBar,
+  EmergencyButton
+- Hooks: useDwell (dwell click), useGazeSocket (WebSocket stub)
+- Estado global: Zustand (activeMessage, dwellTime, isCalibrated)
+- Electron configurado: spawn Python backend + BrowserWindow
+- Mouse simula gaze enquanto WebSocket não conectado
+
 ## Próximas fases
 
-### Fase 5 ⏳ — Polimento para demonstração clínica
-- Calibração própria IrisFlow em PyQt6 (sem janela OpenCV separada)
-- Ajustes de acessibilidade configuráveis por perfil (tamanho de botão,
-  contraste, tempo de dwell)
-- Alerta de recalibração quando acurácia cair
-- Log de sessão por paciente (metadados anônimos — LGPD)
+### Fase 6 ⏳ — Backend FastAPI + WebSocket
+- irisflow/api/main.py — servidor FastAPI
+- WebSocket /gaze — stream de GazePoints em tempo real
+- WebSocket /events — eventos de dwell, TTS, emergência
+- REST /profiles — CRUD de perfis
+- REST /phrases — categorias e frases
+- REST /calibrate — iniciar calibração
+- Integração com TrackingService, DwellController, TTS existentes
 
-### Fase 6 — Piloto clínico
+### Fase 7 ⏳ — Piloto clínico com AACD
 - Parceria com AACD ou AME para 5-10 pacientes com ELA
 - Protocolo de coleta com aprovação ética (CAAE)
 - Fine-tuning com dados reais de ELA
 - Dataset "IrisFlow-ELA-v1" documentado
 - Recalibração automática semanal
 
-### Fase 7 — Regulação e negócio
+### Fase 8 ⏳ — Regulação e negócio
 - Consultor regulatório ANVISA RDC 657/2022 (SaMD Classe I)
 - Log de auditoria imutável de sessões
 - Política de Privacidade e Termos de Uso (LGPD Art. 11)
 - TAM/SAM/SOM formalizado com dados do piloto
 - CAC/LTV calculado com primeiros 10 clientes
 
-### Fase 8 — Empacotamento e lançamento
-- PyInstaller → .exe Windows com instalador simples
+### Fase 9 ⏳ — Empacotamento .exe Windows
+- Electron Builder → instalador .exe Windows
 - Landing page de vendas
 - Submissão FAPESP PIPE
 - Pitch com métricas reais de 5+ pacientes

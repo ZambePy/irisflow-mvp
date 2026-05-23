@@ -1,0 +1,25 @@
+export const colors = {
+  surface: '#111318',
+  surfaceContainer: '#1e2024',
+  surfaceContainerLow: '#1a1c20',
+  surfaceContainerLowest: '#0c0e12',
+  surfaceContainerHigh: '#282a2e',
+  surfaceContainerHighest: '#333539',
+  surfaceBright: '#37393e',
+  primary: '#a0cafc',
+  primaryContainer: '#1f4e79',
+  onPrimary: '#003257',
+  secondary: '#5bdac6',
+  secondaryContainer: '#00a693',
+  onSecondaryContainer: '#00332c',
+  onSurface: '#e2e2e8',
+  onSurfaceVariant: '#c2c7d0',
+  outline: '#8c9199',
+  outlineVariant: '#42474f',
+  error: '#ffb4ab',
+  errorContainer: '#93000a',
+  onErrorContainer: '#ffdad6',
+  background: '#0A0C10',
+}
+
+export const DWELL_TIME_MS = 1500

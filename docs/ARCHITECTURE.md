@@ -1,11 +1,25 @@
 # Arquitetura IrisFlow
 
-## Visão geral
+## Arquitetura Frontend
+
+```
+Electron (shell desktop)
+  → React App (localhost:5173 em dev / dist/ em produção)
+    → WebSocket ws://localhost:8765
+      → FastAPI (irisflow/api/main.py) — a implementar
+        → TrackingService → EyeTrax / IrisGazeNet
+        → DwellController
+        → TTSEngine
+        → ProfileStore
+        → PhrasesStore
+```
+
+## Visão geral (backend Python)
 
 ```
 ┌─────────────────────────────────────────┐
 │              IrisFlow UI                │
-│  (PyQt6 — screens, components, theme)  │
+│  (React 18 + Electron — Fase 5+)       │
 └────────────────┬────────────────────────┘
                  │ GazePoint, eventos
 ┌────────────────▼────────────────────────┐

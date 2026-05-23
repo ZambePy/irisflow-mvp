@@ -2,7 +2,7 @@
 
 > Plataforma assistiva de comunicação por rastreamento ocular para pessoas com ELA, tetraplegia e limitações motoras severas.
 
-![Python](https://img.shields.io/badge/Python-3.11-blue?logo=python) ![PyQt6](https://img.shields.io/badge/UI-PyQt6-green) ![EyeTrax](https://img.shields.io/badge/EyeTrax-0.4-orange) ![Windows](https://img.shields.io/badge/Platform-Windows-0078D4?logo=windows)
+![Python](https://img.shields.io/badge/Python-3.11-blue?logo=python) ![React](https://img.shields.io/badge/UI-React%2018%20%2B%20Electron-61DAFB?logo=react) ![EyeTrax](https://img.shields.io/badge/EyeTrax-0.4-orange) ![Windows](https://img.shields.io/badge/Platform-Windows-0078D4?logo=windows)
 
 ---
 
@@ -50,34 +50,42 @@ O EyeTrax é apenas o motor mecânico. A interface, lógica assistiva e experiê
 
 ---
 
-## Primeiros passos
+## Como rodar
 
-### 1. Criar e ativar o ambiente virtual
+### Frontend (desenvolvimento)
+
+```bash
+cd frontend
+npm install
+npm run dev        # abre no navegador em localhost:5173
+```
+
+### App desktop (Electron)
+
+```bash
+cd frontend
+npm run electron:dev   # abre como aplicativo desktop
+```
+
+### Backend Python (em breve)
+
+```bash
+python -m irisflow.api.main
+```
+
+### Ambiente Python (pipeline ML e engine de tracking)
 
 ```bash
 python -m venv .venv
 .venv\Scripts\activate   # Windows
-```
-
-### 2. Instalar dependências
-
-```bash
 pip install -r requirements.txt
 ```
 
-### 3. Rodar o MVP
+### Como testar o dwell click (modo desenvolvimento)
 
-```bash
-python -m irisflow.app.main
-```
-
-> Por padrão inicia em modo **mock** (mouse simula o olhar). Para usar o EyeTrax real, configure `engine: eyetrax` em `irisflow/integrations/eyetrax/config.py`.
-
-### 4. Como testar o dwell click
-
-- Mova o mouse sobre um botão
-- Mantenha o cursor parado por **1 segundo**
-- O botão será ativado automaticamente com feedback de progresso
+- O mouse simula o olhar enquanto o WebSocket não está conectado
+- Mova o mouse sobre um botão e mantenha parado por **1 segundo**
+- O botão é ativado automaticamente com feedback de progresso visual
 
 ---
 
@@ -85,7 +93,9 @@ python -m irisflow.app.main
 
 | Componente | Tecnologia |
 |---|---|
-| Interface desktop | PyQt6 |
+| Frontend | React 18 + Vite + Electron |
+| UI Design | Tailwind CSS + Glassmorphism (design Lumina) |
+| Comunicação | WebSocket (FastAPI ↔ React) |
 | Eye tracking | EyeTrax 0.4 (via adapter) / MockGazeEngine |
 | ML / Gaze Estimation | MobileNetV2 (extrator) + SVR (scikit-learn) |
 | TTS | pyttsx3 + SAPI (Windows) |
@@ -121,13 +131,21 @@ Para usar o IrisGazeNet como engine de rastreamento, configure `config.tracking_
 
 ```
 irisflow-mvp/
+├── frontend/
+│   ├── src/
+│   │   ├── components/    # GazeCursor, GazeButton, GlassPanel, SideNav, TopBar, EmergencyButton
+│   │   ├── screens/       # Dashboard, Frases, Teclado, Calibração
+│   │   ├── hooks/         # useDwell, useGazeSocket
+│   │   ├── store/         # Zustand (activeMessage, dwellTime, isCalibrated)
+│   │   └── theme/         # lumina.js — tokens de design (cores, tipografia, espaçamento)
+│   ├── electron/          # main.js — BrowserWindow + spawn Python backend
+│   └── public/
 ├── irisflow/
 │   ├── app/           # Entrypoint e bootstrap
 │   ├── core/          # Config, eventos, estado, logger
 │   ├── tracking/      # BaseGazeEngine, MockGazeEngine, TrackingService
 │   ├── integrations/  # EyeTraxAdapter (isolado)
 │   ├── accessibility/ # Dwell click, fixation, region mapper
-│   ├── ui/            # Janelas, telas, componentes PyQt6
 │   ├── speech/        # TTS e fila de fala
 │   ├── profiles/      # Perfis de usuário
 │   └── storage/       # Persistência local
@@ -143,10 +161,11 @@ irisflow-mvp/
 - [x] Fase 2 ✅ EyeTrax real + filtros avançados
 - [x] Fase 3 ✅ Frases rápidas + teclado + perfis
 - [x] Fase 4 ✅ Pipeline de ML próprio (IrisGazeNet + SVR)
-- [ ] Fase 5 ⏳ Polimento para demonstração clínica
-- [ ] Fase 6 ⏳ Piloto clínico com AACD
-- [ ] Fase 7 ⏳ Regulação ANVISA + negócio
-- [ ] Fase 8 ⏳ Empacotamento + lançamento
+- [x] Fase 5 ✅ Frontend React + Electron (design Lumina, 4 telas)
+- [ ] Fase 6 ⏳ Backend FastAPI + WebSocket
+- [ ] Fase 7 ⏳ Piloto clínico com AACD
+- [ ] Fase 8 ⏳ Regulação ANVISA + negócio
+- [ ] Fase 9 ⏳ Empacotamento .exe Windows
 
 **Meta:** demonstração para profissionais de saúde em julho/agosto 2026.
 

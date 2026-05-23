@@ -121,6 +121,23 @@
 **Substitui:** `IrisGazeNet` (com MLP) e `IrisGazeNetCalibrated` (wrapper separado). A API pública agora é `IrisFeatureExtractor` e `IrisGazeEstimator`.  
 **Impacto:** `training/model.py` reescrito; `dataset.py` não alterado.
 
+## ADR-022 — Migração de PyQt6 para React + Electron
+
+**Contexto:** PyQt6 limitava o design e dificultava iteração visual; design profissional criado no Stitch.ai com glassmorphism exigia componentes web modernos.  
+**Decisão:** Frontend React 18 + Vite; shell desktop Electron; comunicação via WebSocket com backend FastAPI Python.  
+**Consequências:**
+- Frontend e backend completamente desacoplados
+- Permite atualizar ML, tracking e lógica Python sem recompilar frontend
+- PyQt6 removido como dependência de produção
+
+## ADR-023 — Design System Lumina (Stitch.ai)
+
+**Contexto:** Necessidade de UI clínica profissional com alto contraste, glassmorphism e botões grandes para eye tracking.  
+**Decisão:** Usar design system Lumina exportado do Stitch.ai.  
+**Consequências:**
+- Tokens centralizados em `frontend/src/theme/lumina.js`
+- Cores, tipografia e espaçamento facilmente customizáveis por clínica
+
 ## ADR-020 — Remoção da pose explícita do pipeline de features
 
 **Contexto:** O MPIIGaze Annotation Subset não fornece ângulos de pitch/yaw em radianos — apenas landmarks faciais em coordenadas de pixel. A tentativa de estimar pose via MediaPipe falhou com 100% de taxa de zeros, pois os crops do olho (sem rosto completo) não são suportados pelo MediaPipe Face Mesh.  

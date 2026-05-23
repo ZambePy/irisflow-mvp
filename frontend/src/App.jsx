@@ -1,0 +1,29 @@
+import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import TopBar from './components/TopBar'
+import SideNav from './components/SideNav'
+import GazeCursor from './components/GazeCursor'
+import EmergencyButton from './components/EmergencyButton'
+import Dashboard from './screens/Dashboard'
+import QuickPhrases from './screens/QuickPhrases'
+import Keyboard from './screens/Keyboard'
+import Calibration from './screens/Calibration'
+import { useGazeSocket } from './hooks/useGazeSocket'
+
+export default function App() {
+  const { gazePoint, connected, calibrated } = useGazeSocket()
+
+  return (
+    <BrowserRouter>
+      <GazeCursor position={gazePoint} />
+      <TopBar calibrated={calibrated} connected={connected} />
+      <SideNav />
+      <EmergencyButton />
+      <Routes>
+        <Route path="/" element={<Dashboard />} />
+        <Route path="/phrases" element={<QuickPhrases />} />
+        <Route path="/keyboard" element={<Keyboard />} />
+        <Route path="/calibration" element={<Calibration />} />
+      </Routes>
+    </BrowserRouter>
+  )
+}
