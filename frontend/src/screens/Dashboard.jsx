@@ -2,10 +2,12 @@ import { useNavigate } from 'react-router-dom'
 import GazeButton from '../components/GazeButton'
 import GlassPanel from '../components/GlassPanel'
 import { useAppStore } from '../store/appStore'
+import { useGazeSocket } from '../context/GazeSocketContext'
 
 export default function Dashboard() {
   const navigate = useNavigate()
   const { activeMessage } = useAppStore()
+  const { sendMessage } = useGazeSocket()
 
   return (
     <>
@@ -34,7 +36,7 @@ export default function Dashboard() {
           <div className="grid grid-cols-2 gap-gutter">
             <GazeButton
               className="rounded-[2rem] flex flex-col items-center justify-center gap-4 group"
-              onActivate={() => console.log('YES')}
+              onActivate={() => sendMessage('speak', { text: 'Sim' })}
             >
               <div className="w-24 h-24 rounded-full bg-secondary-container/20 flex items-center justify-center group-hover:scale-110 transition-transform">
                 <span
@@ -49,7 +51,7 @@ export default function Dashboard() {
 
             <GazeButton
               className="rounded-[2rem] flex flex-col items-center justify-center gap-4 group"
-              onActivate={() => console.log('NO')}
+              onActivate={() => sendMessage('speak', { text: 'Não' })}
             >
               <div className="w-24 h-24 rounded-full bg-error-container/20 flex items-center justify-center group-hover:scale-110 transition-transform">
                 <span

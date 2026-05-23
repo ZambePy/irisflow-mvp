@@ -1,4 +1,5 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import { GazeSocketProvider, useGazeSocket } from './context/GazeSocketContext'
 import TopBar from './components/TopBar'
 import SideNav from './components/SideNav'
 import GazeCursor from './components/GazeCursor'
@@ -7,9 +8,8 @@ import Dashboard from './screens/Dashboard'
 import QuickPhrases from './screens/QuickPhrases'
 import Keyboard from './screens/Keyboard'
 import Calibration from './screens/Calibration'
-import { useGazeSocket } from './hooks/useGazeSocket'
 
-export default function App() {
+function AppShell() {
   const { gazePoint, connected, calibrated } = useGazeSocket()
 
   return (
@@ -25,5 +25,13 @@ export default function App() {
         <Route path="/calibration" element={<Calibration />} />
       </Routes>
     </BrowserRouter>
+  )
+}
+
+export default function App() {
+  return (
+    <GazeSocketProvider>
+      <AppShell />
+    </GazeSocketProvider>
   )
 }
