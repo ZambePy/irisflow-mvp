@@ -52,25 +52,28 @@ O EyeTrax é apenas o motor mecânico. A interface, lógica assistiva e experiê
 
 ## Como rodar
 
-### Frontend (desenvolvimento)
+### Desenvolvimento (dois terminais)
 
+Terminal 1 — Backend Python:
+```bash
+pip install fastapi uvicorn websockets
+python -m irisflow.api.main
+# Sobe em http://127.0.0.1:8765
+```
+
+Terminal 2 — Frontend React:
 ```bash
 cd frontend
 npm install
-npm run dev        # abre no navegador em localhost:5173
+npm run dev
+# Abre em http://localhost:5173
 ```
 
-### App desktop (Electron)
+### App Desktop (Electron)
 
 ```bash
 cd frontend
-npm run electron:dev   # abre como aplicativo desktop
-```
-
-### Backend Python (em breve)
-
-```bash
-python -m irisflow.api.main
+npm run electron:dev
 ```
 
 ### Ambiente Python (pipeline ML e engine de tracking)
@@ -95,7 +98,8 @@ pip install -r requirements.txt
 |---|---|
 | Frontend | React 18 + Vite + Electron |
 | UI Design | Tailwind CSS + Glassmorphism (design Lumina) |
-| Comunicação | WebSocket (FastAPI ↔ React) |
+| Backend API | FastAPI + Uvicorn |
+| Comunicação | WebSocket (porta 8765) |
 | Eye tracking | EyeTrax 0.4 (via adapter) / MockGazeEngine |
 | ML / Gaze Estimation | MobileNetV2 (extrator) + SVR (scikit-learn) |
 | TTS | pyttsx3 + SAPI (Windows) |
@@ -157,15 +161,18 @@ irisflow-mvp/
 
 ## Roadmap rápido
 
-- [x] Fase 1 ✅ Base funcional
+- [x] Fase 1 ✅ Base funcional (MockGazeEngine + UI + dwell + TTS)
 - [x] Fase 2 ✅ EyeTrax real + filtros avançados
 - [x] Fase 3 ✅ Frases rápidas + teclado + perfis
-- [x] Fase 4 ✅ Pipeline de ML próprio (IrisGazeNet + SVR)
-- [x] Fase 5 ✅ Frontend React + Electron (design Lumina, 4 telas)
-- [ ] Fase 6 ⏳ Backend FastAPI + WebSocket
-- [ ] Fase 7 ⏳ Piloto clínico com AACD
-- [ ] Fase 8 ⏳ Regulação ANVISA + negócio
-- [ ] Fase 9 ⏳ Empacotamento .exe Windows
+- [x] Fase 4 ✅ Pipeline ML (IrisGazeNet + SVR, MAE 22,7px)
+- [x] Fase 5 ✅ Frontend React + Electron (design Lumina)
+- [x] Fase 6 ✅ Backend FastAPI + WebSocket integrado
+- [ ] Fase 7 ⏳ Ajustes de UI + logo + cores por clínica
+- [ ] Fase 8 ⏳ EyeTrax/IrisGazeNet conectado ao frontend
+- [ ] Fase 9 ⏳ Dwell click via WebSocket (regiões dos botões)
+- [ ] Fase 10 ⏳ Piloto clínico com AACD
+- [ ] Fase 11 ⏳ Regulação ANVISA + negócio
+- [ ] Fase 12 ⏳ Empacotamento .exe Windows
 
 **Meta:** demonstração para profissionais de saúde em julho/agosto 2026.
 

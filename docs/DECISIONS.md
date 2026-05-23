@@ -138,6 +138,26 @@
 - Tokens centralizados em `frontend/src/theme/lumina.js`
 - Cores, tipografia e espaçamento facilmente customizáveis por clínica
 
+## ADR-024 — QApplication offscreen no backend FastAPI
+
+**Contexto:** DwellController usa pyqtSignal que requer QApplication.
+FastAPI/uvicorn rodando sem display causava falha silenciosa
+que derrubava o WebSocket.  
+**Decisão:** Inicializar QApplication com `QT_QPA_PLATFORM=offscreen`
+ANTES de qualquer import do irisflow no main.py.  
+**Impacto:** Backend funciona sem display físico (servidor, CI/CD).
+
+## ADR-025 — GazeSocketContext como provider singleton React
+
+**Contexto:** `useGazeSocket.js` sendo instanciado por múltiplos
+componentes causava múltiplas conexões WebSocket que abriam
+e fechavam imediatamente.  
+**Decisão:** Criar `GazeSocketContext.jsx` com um único provider
+no topo da árvore React (`App.jsx`). Reconexão automática a cada
+3 segundos se a conexão cair. Todos os componentes consomem o mesmo
+contexto compartilhado.  
+**Impacto:** Conexão WebSocket estável e singleton em toda a aplicação.
+
 ## ADR-020 — Remoção da pose explícita do pipeline de features
 
 **Contexto:** O MPIIGaze Annotation Subset não fornece ângulos de pitch/yaw em radianos — apenas landmarks faciais em coordenadas de pixel. A tentativa de estimar pose via MediaPipe falhou com 100% de taxa de zeros, pois os crops do olho (sem rosto completo) não são suportados pelo MediaPipe Face Mesh.  

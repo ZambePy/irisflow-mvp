@@ -39,32 +39,56 @@ perfis de usuário com modo cuidador via F10
 - Electron configurado: spawn Python backend + BrowserWindow
 - Mouse simula gaze enquanto WebSocket não conectado
 
+### Fase 6 ✅ — Backend FastAPI + WebSocket
+- irisflow/api/ criado com FastAPI + Uvicorn na porta 8765
+- WebSocket /ws — stream bidirecional React ↔ Python
+- REST /profiles, /phrases, /calibration implementados
+- QApplication offscreen inicializado antes do FastAPI
+  (necessário para DwellController com pyqtSignal)
+- ConnectionManager singleton — broadcast para todos os clientes
+- Reconexão automática no frontend a cada 3 segundos
+- Mensagens implementadas:
+    Frontend → Backend: start_tracking, stop_tracking, speak,
+                        emergency, dwell_regions
+    Backend → Frontend: gaze, dwell_progress, dwell_completed,
+                        dwell_cancelled, tracking_status, error
+- TTS via WebSocket funcionando — botão YES fala "Sim" ✅
+- GazeSocketContext.jsx — provider React singleton
+
 ## Próximas fases
 
-### Fase 6 ⏳ — Backend FastAPI + WebSocket
-- irisflow/api/main.py — servidor FastAPI
-- WebSocket /gaze — stream de GazePoints em tempo real
-- WebSocket /events — eventos de dwell, TTS, emergência
-- REST /profiles — CRUD de perfis
-- REST /phrases — categorias e frases
-- REST /calibrate — iniciar calibração
-- Integração com TrackingService, DwellController, TTS existentes
+### Fase 7 ⏳ — Ajustes de UI e personalização visual
+- Ajustes de design nas 4 telas (Dashboard, Frases, Teclado, Calibração)
+- Logo da empresa/clínica configurável
+- Cores por perfil de clínica (tema customizável via lumina.js)
+- Telas de Frases e Teclado conectadas ao backend via WebSocket
+- Dwell click via WebSocket — envio de regiões dos botões ao backend
 
-### Fase 7 ⏳ — Piloto clínico com AACD
+### Fase 8 ⏳ — EyeTrax/IrisGazeNet conectado ao frontend
+- TrackingService integrado ao WebSocket — gaze points em tempo real
+- Cursor de gaze ativo no frontend com dados reais
+- Dwell click disparado pelo backend via WebSocket
+
+### Fase 9 ⏳ — Dwell click via WebSocket (regiões dos botões)
+- Frontend envia mapa de regiões dos botões ao backend (dwell_regions)
+- Backend calcula dwell sobre as regiões e emite dwell_completed
+- Teclado virtual e Frases funcionando com gaze real
+
+### Fase 10 ⏳ — Piloto clínico com AACD
 - Parceria com AACD ou AME para 5-10 pacientes com ELA
 - Protocolo de coleta com aprovação ética (CAAE)
 - Fine-tuning com dados reais de ELA
 - Dataset "IrisFlow-ELA-v1" documentado
 - Recalibração automática semanal
 
-### Fase 8 ⏳ — Regulação e negócio
+### Fase 11 ⏳ — Regulação e negócio
 - Consultor regulatório ANVISA RDC 657/2022 (SaMD Classe I)
 - Log de auditoria imutável de sessões
 - Política de Privacidade e Termos de Uso (LGPD Art. 11)
 - TAM/SAM/SOM formalizado com dados do piloto
 - CAC/LTV calculado com primeiros 10 clientes
 
-### Fase 9 ⏳ — Empacotamento .exe Windows
+### Fase 12 ⏳ — Empacotamento .exe Windows
 - Electron Builder → instalador .exe Windows
 - Landing page de vendas
 - Submissão FAPESP PIPE
@@ -76,6 +100,6 @@ perfis de usuário com modo cuidador via F10
 |---|---|---|
 | Modelo não atinge 92% em ELA real | 🔴 P1 | Dados reais AACD + augmentation ELA |
 | Latência >30ms em hardware básico | 🟠 P2 | ONNX + INT8 antes do beta |
-| Exigência ANVISA antes de clínicas | 🟠 P3 | Consultor desde Fase 7 |
+| Exigência ANVISA antes de clínicas | 🟠 P3 | Consultor desde Fase 11 |
 | Concorrente lança antes do MVP | 🟡 P4 | Acelerar beta + fortalecer AACD |
 | ELA progressiva — modelo não acompanha | 🟡 P6 | Recalibração semanal automática |

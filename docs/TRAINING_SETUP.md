@@ -220,3 +220,24 @@ Avaliação realizada no MPIIGaze Annotation Subset (participante p14, 615 amost
 - Os datasets MPIIGaze e OpenEDS **não devem ser commitados** no repositório — estão no `.gitignore`.
 - Modelos `.pkl` também ficam fora do git — os arquivos `svr_x_base.pkl` e `svr_y_base.pkl` serão distribuídos separadamente (release ou download automático).
 - Dados de calibração dos pacientes (`profiles/{id}/svr_x.pkl` e `svr_y.pkl`) são armazenados apenas localmente no dispositivo do paciente — nunca enviados a servidores.
+
+---
+
+## Integração com o MVP
+
+### Como trocar o engine no frontend
+
+O engine de tracking é controlado pelo backend.
+Para trocar, editar `irisflow/core/config.py`:
+
+```python
+tracking_engine: str = "mock"         # desenvolvimento
+tracking_engine: str = "eyetrax"      # produção com webcam
+tracking_engine: str = "irisgazenet"  # modelo ML próprio
+```
+
+Ou enviar via WebSocket do frontend:
+
+```javascript
+sendMessage('start_tracking', { engine: 'irisgazenet' })
+```

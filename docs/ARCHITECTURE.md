@@ -1,18 +1,37 @@
 # Arquitetura IrisFlow
 
-## Arquitetura Frontend
+## Arquitetura completa atual
 
 ```
 Electron (shell desktop)
-  → React App (localhost:5173 em dev / dist/ em produção)
-    → WebSocket ws://localhost:8765
-      → FastAPI (irisflow/api/main.py) — a implementar
-        → TrackingService → EyeTrax / IrisGazeNet
-        → DwellController
-        → TTSEngine
-        → ProfileStore
-        → PhrasesStore
+  → React App (Vite, porta 5173)
+    → GazeSocketContext (WebSocket singleton)
+      → ws://localhost:8765/ws
+        → FastAPI (irisflow/api/main.py)
+          → QApplication offscreen (necessário para Qt signals)
+          → ConnectionManager (broadcast para todos os clientes)
+          → TrackingService → EyeTrax | IrisGazeNet | Mock
+          → DwellController (pyqtSignal → asyncio bridge)
+          → TTSEngine (SAPI Windows via PowerShell)
+          → ProfileStore (JSON local)
+          → PhrasesStore (JSON local)
 ```
+
+## Portas e endpoints
+
+| Serviço | Porta | Protocolo |
+|---|---|---|
+| Backend FastAPI | 8765 | HTTP + WebSocket |
+| Frontend Vite (dev) | 5173 | HTTP |
+| Frontend Electron (prod) | arquivo local | file:// |
+
+## Engines disponíveis
+
+| Engine | Como ativar | Status |
+|---|---|---|
+| mock | config.tracking_engine = "mock" | ✅ Padrão dev |
+| eyetrax | config.tracking_engine = "eyetrax" | ✅ Produção |
+| irisgazenet | config.tracking_engine = "irisgazenet" | ✅ ML próprio |
 
 ## Visão geral (backend Python)
 
