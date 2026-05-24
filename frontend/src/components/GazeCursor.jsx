@@ -13,6 +13,8 @@ export default function GazeCursor({ position }) {
     return () => window.removeEventListener('mousemove', handleMove)
   }, [])
 
+  if (!position) return null
+
   return (
     <div
       className="fixed top-0 left-0 w-12 h-12 border-2 border-secondary rounded-full flex items-center justify-center pointer-events-none z-[9999]"

@@ -8,14 +8,17 @@ import Dashboard from './screens/Dashboard'
 import QuickPhrases from './screens/QuickPhrases'
 import Keyboard from './screens/Keyboard'
 import Calibration from './screens/Calibration'
+import Welcome from './screens/Welcome'
+import ProfileSetup from './screens/ProfileSetup'
+import Settings from './screens/Settings'
 
+// Telas que usam o shell completo (topbar + sidebar + emergency)
 function AppShell() {
-  const { gazePoint } = useGazeSocket()
-
+  const { gazePoint, connected, calibrated } = useGazeSocket()
   return (
-    <BrowserRouter>
+    <>
       <GazeCursor position={gazePoint} />
-      <TopBar />
+      <TopBar calibrated={calibrated} connected={connected} />
       <SideNav />
       <EmergencyButton />
       <Routes>
@@ -23,15 +26,49 @@ function AppShell() {
         <Route path="/phrases" element={<QuickPhrases />} />
         <Route path="/keyboard" element={<Keyboard />} />
         <Route path="/calibration" element={<Calibration />} />
+        <Route path="/settings" element={<Settings />} />
       </Routes>
-    </BrowserRouter>
+    </>
+  )
+}
+
+// Telas standalone (sem sidebar/topbar — fluxo de onboarding)
+function OnboardingShell() {
+  const { gazePoint } = useGazeSocket()
+  return (
+    <>
+      <GazeCursor position={gazePoint} />
+      <Routes>
+        <Route path="/welcome" element={<Welcome />} />
+        <Route path="/profile-setup" element={<ProfileSetup />} />
+      </Routes>
+    </>
   )
 }
 
 export default function App() {
   return (
     <GazeSocketProvider>
-      <AppShell />
+      <BrowserRouter>
+        <Routes>
+          {/* Onboarding — sem shell */}
+          <Route path="/welcome" element={
+            <>
+              <GazeCursor position={null} />
+              <Welcome />
+            </>
+          } />
+          <Route path="/profile-setup" element={
+            <>
+              <GazeCursor position={null} />
+              <ProfileSetup />
+            </>
+          } />
+
+          {/* App principal — com shell */}
+          <Route path="/*" element={<AppShell />} />
+        </Routes>
+      </BrowserRouter>
     </GazeSocketProvider>
   )
 }
