@@ -10,12 +10,12 @@ import Keyboard from './screens/Keyboard'
 import Calibration from './screens/Calibration'
 
 function AppShell() {
-  const { gazePoint, connected, calibrated } = useGazeSocket()
+  const { gazePoint } = useGazeSocket()
 
   return (
     <BrowserRouter>
       <GazeCursor position={gazePoint} />
-      <TopBar calibrated={calibrated} connected={connected} />
+      <TopBar />
       <SideNav />
       <EmergencyButton />
       <Routes>
