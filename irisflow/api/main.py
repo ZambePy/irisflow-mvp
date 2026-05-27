@@ -7,9 +7,10 @@ import asyncio
 import json
 import sys
 import threading
-import os 
+import os
 os.environ["QT_QPA_PLATFORM"] = "offscreen"  # sem display real
 from PyQt6.QtWidgets import QApplication
+from PyQt6.QtCore import Qt
 _qt_app = QApplication.instance() or QApplication(sys.argv)
 
 import uvicorn
@@ -111,6 +112,12 @@ async def handle_message(websocket: WebSocket, message: dict) -> None:
         tts.speak("Emergência! Preciso de ajuda!")
         await manager.broadcast({"type": "emergency_activated"})
 
+    elif msg_type == "set_dwell_time":
+        ms = int(message.get("ms", config.dwell_time_ms))
+        if dwell:
+            dwell.set_dwell_time(ms)
+            logger.info(f"[API] DwellTime atualizado: {ms}ms")
+
     elif msg_type == "dwell_regions":
         await update_dwell_regions(message.get("regions", []))
 
@@ -157,6 +164,9 @@ async def start_tracking(websocket: WebSocket, engine_name: str) -> None:
                 loop,
             )
 
+        # DirectConnection: slot chamado diretamente na thread que emitiu o sinal.
+        # Necessário porque o Qt event loop não está rodando (sem exec()), então
+        # QueuedConnection (padrão cross-thread) nunca processaria os eventos.
         dwell.dwell_progress.connect(
             lambda rid, p: asyncio.run_coroutine_threadsafe(
                 manager.broadcast({
@@ -165,7 +175,8 @@ async def start_tracking(websocket: WebSocket, engine_name: str) -> None:
                     "progress": p,
                 }),
                 loop,
-            )
+            ),
+            Qt.ConnectionType.DirectConnection,
         )
 
         dwell.dwell_completed.connect(
@@ -175,7 +186,8 @@ async def start_tracking(websocket: WebSocket, engine_name: str) -> None:
                     "region_id": rid,
                 }),
                 loop,
-            )
+            ),
+            Qt.ConnectionType.DirectConnection,
         )
 
         dwell.dwell_cancelled.connect(
@@ -185,7 +197,8 @@ async def start_tracking(websocket: WebSocket, engine_name: str) -> None:
                     "region_id": rid,
                 }),
                 loop,
-            )
+            ),
+            Qt.ConnectionType.DirectConnection,
         )
 
         tracking.add_listener(on_gaze)

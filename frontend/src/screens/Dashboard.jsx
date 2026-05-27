@@ -1,6 +1,7 @@
-import { useEffect, useRef, useCallback } from 'react'
+import { useEffect, useRef, useCallback, useId } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useGazeSocket } from '../context/GazeSocketContext'
+import { useAppStore } from '../store/appStore'
 import { useDwell } from '../hooks/useDwell'
 
 // --- Particle canvas background ---
@@ -98,10 +99,35 @@ function VolumePulse() {
   )
 }
 
-// --- Tilt card wrapper ---
+// Converte coordenadas de viewport para coordenadas de tela (usadas pelo DwellController)
+function clientToScreen(rect) {
+  const chromeH = window.outerHeight - window.innerHeight
+  return {
+    x: Math.round(rect.left + window.screenX),
+    y: Math.round(rect.top + window.screenY + chromeH),
+    w: Math.round(rect.width),
+    h: Math.round(rect.height),
+  }
+}
+
+// --- Tilt card wrapper com dwell registrado no backend ---
 function TiltCard({ onClick, className = '', style = {}, children }) {
+  const id = useId()
   const ref = useRef(null)
   const { onMouseEnter: dwellEnter, onMouseLeave: dwellLeave } = useDwell(onClick ?? (() => {}))
+  const { registerDwellRegion, unregisterDwellRegion } = useGazeSocket()
+
+  // Mantém referência estável ao onClick para o callback do backend
+  const onClickRef = useRef(onClick)
+  useEffect(() => { onClickRef.current = onClick }, [onClick])
+
+  // Registra no DwellController do backend ao montar
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    registerDwellRegion(id, clientToScreen(el.getBoundingClientRect()), () => onClickRef.current?.(), null)
+    return () => unregisterDwellRegion(id)
+  }, [id, registerDwellRegion, unregisterDwellRegion])
 
   const onMove = useCallback((e) => {
     const el = ref.current
@@ -180,16 +206,26 @@ const scanStyle = `
 // --- Main Dashboard ---
 export default function Dashboard() {
   const navigate = useNavigate()
-  const { activeMessage } = useGazeSocket()
+  const { sendMessage, registerDwellRegion, unregisterDwellRegion } = useGazeSocket()
+  const activeMessage = useAppStore(state => state.activeMessage)
 
-  const handleSpeak = () => {
-    window.speechSynthesis.cancel()
-    const utterance = new SpeechSynthesisUtterance(activeMessage || 'Gaze to start typing')
-    utterance.lang = 'pt-BR'
-    utterance.rate = 0.9
-    utterance.volume = 1
-    window.speechSynthesis.speak(utterance)
-  }
+  // TTS sempre via backend Python (SAPI) — nunca window.speechSynthesis
+  const handleSpeak = useCallback(() => {
+    sendMessage('speak', { text: activeMessage || 'Gaze to start typing' })
+  }, [sendMessage, activeMessage])
+
+  // Botão speak (volume_up) registrado no backend para dwell
+  const speakBtnRef = useRef(null)
+  const speakBtnId = useId()
+  const handleSpeakRef = useRef(handleSpeak)
+  useEffect(() => { handleSpeakRef.current = handleSpeak }, [handleSpeak])
+
+  useEffect(() => {
+    const el = speakBtnRef.current
+    if (!el) return
+    registerDwellRegion(speakBtnId, clientToScreen(el.getBoundingClientRect()), () => handleSpeakRef.current(), null)
+    return () => unregisterDwellRegion(speakBtnId)
+  }, [speakBtnId, registerDwellRegion, unregisterDwellRegion])
 
   const { onMouseEnter: speakEnter, onMouseLeave: speakLeave } = useDwell(handleSpeak)
 
@@ -217,6 +253,7 @@ export default function Dashboard() {
             </h1>
           </div>
           <button
+            ref={speakBtnRef}
             className="glass-panel-cinematic w-16 h-16 rounded-full flex items-center justify-center hover:scale-110 cursor-pointer group"
             onMouseEnter={speakEnter}
             onMouseLeave={speakLeave}
@@ -230,8 +267,9 @@ export default function Dashboard() {
 
         {/* --- YES / NO column --- */}
         <div className="col-span-5 grid grid-rows-2 gap-gutter" style={{ height: 'calc(100vh - 320px)' }}>
-          {/* YES */}
+          {/* YES — fala "SIM" via backend TTS */}
           <TiltCard
+            onClick={() => sendMessage('speak', { text: 'SIM' })}
             className="glass-panel-cinematic gaze-target-active rounded-3xl flex flex-col items-center justify-center gap-4 group card-entrance w-full"
             style={{ animationDelay: '0.2s' }}
           >
@@ -258,8 +296,9 @@ export default function Dashboard() {
             </span>
           </TiltCard>
 
-          {/* NO */}
+          {/* NO — fala "NÃO" via backend TTS */}
           <TiltCard
+            onClick={() => sendMessage('speak', { text: 'NÃO' })}
             className="glass-panel-cinematic gaze-target-active rounded-3xl flex flex-col items-center justify-center gap-4 group card-entrance w-full"
             style={{ animationDelay: '0.3s' }}
           >

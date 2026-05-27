@@ -109,6 +109,10 @@ class DwellController(QObject):
         """Limpa estado ativo sem remover regiões. Evita dupla ativação após dwell_completed."""
         self._reset()
 
+    def set_dwell_time(self, ms: int) -> None:
+        """Atualiza o tempo de dwell em tempo real (usado quando perfil muda)."""
+        self._dwell_time = ms / 1000.0
+
     def _reset(self) -> None:
         self._active_region = None
         self._dwell_start = None

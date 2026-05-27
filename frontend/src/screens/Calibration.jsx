@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useDwell } from '../hooks/useDwell'
+import { useAppStore } from '../store/appStore'
 
 // --- 6 pontos em padrao circular
 const POINTS = [
@@ -48,17 +49,23 @@ export default function Calibration() {
   const navigate = useNavigate()
   const [activeIndex, setActiveIndex] = useState(0)
   const [completed, setCompleted] = useState(false)
+  const setCalibrated = useAppStore(state => state.setCalibrated)
 
   const progress = Math.round((activeIndex / POINTS.length) * 100)
 
   const advancePoint = useCallback(() => {
+    // Inicia calibração no backend no primeiro ponto (mock engine completa instantaneamente)
+    if (activeIndex === 0) {
+      fetch('http://localhost:8765/calibration/start?engine=mock', { method: 'POST' }).catch(() => {})
+    }
     if (activeIndex < POINTS.length - 1) {
       setActiveIndex((i) => i + 1)
     } else {
       setCompleted(true)
+      setCalibrated(true)  // Atualiza estado global — fonte única de verdade no appStore
       setTimeout(() => navigate('/'), 2000)
     }
-  }, [activeIndex, navigate])
+  }, [activeIndex, navigate, setCalibrated])
 
   const { onMouseEnter: startDwell, onMouseLeave: cancelDwell } = useDwell(advancePoint)
 

@@ -55,24 +55,41 @@ perfis de usuário com modo cuidador via F10
 - TTS via WebSocket funcionando — botão YES fala "Sim" ✅
 - GazeSocketContext.jsx — provider React singleton
 
+### Fase 7 ✅ — Integração completa React ↔ FastAPI (5 sistemas conectados)
+
+#### TTS via backend (ADR-026)
+- Removido `window.speechSynthesis` do Dashboard — substituído por `sendMessage('speak', { text })`
+- Botões YES e NO falam "SIM" / "NÃO" via SAPI Windows
+- QuickPhrases fala a frase selecionada via WebSocket
+
+#### Dwell loop real com DwellController (ADR-027)
+- Frontend registra bounding boxes dos botões via `registerDwellRegion(id, rect, onCompleted)`
+- GazeSocketContext mantém mapa de regiões por ID e reenvia ao backend a cada mudança
+- `TiltCard` em Dashboard.jsx registra automaticamente sua região ao montar
+- Helper `clientToScreen()` converte coordenadas viewport → tela para o DwellController
+- Correção crítica: sinais Qt usam `Qt.ConnectionType.DirectConnection` (ver ADR-027)
+
+#### Calibração conectada ao backend
+- Calibration.jsx chama `POST /calibration/start?engine=mock` no primeiro ponto
+- Ao completar os 6 pontos: `setCalibrated(true)` no appStore → estado global atualizado
+
+#### Estado unificado — fonte única de verdade (ADR-028)
+- `isCalibrated` removido do GazeSocketContext; derivado diretamente do appStore
+- `dwellTime` do appStore sincronizado ao backend via mensagem `set_dwell_time` ao conectar/mudar
+- Novo handler `set_dwell_time` no backend + `DwellController.set_dwell_time(ms)` para atualização em runtime
+- `activeMessage` lido do appStore no Dashboard (não existia no contexto WS)
+
+#### Frases da API
+- QuickPhrases.jsx busca `GET /phrases/categories` ao montar (24 frases PT-BR, 4 categorias)
+- Mapeamento `CATEGORY_META` → ícones Material Symbols + cores Tailwind por categoria
+- Frase selecionada atualiza ACTIVE MESSAGE no Dashboard e dispara TTS
+
 ## Próximas fases
 
-### Fase 7 ⏳ — Ajustes de UI e personalização visual
-- Ajustes de design nas 4 telas (Dashboard, Frases, Teclado, Calibração)
-- Logo da empresa/clínica configurável
-- Cores por perfil de clínica (tema customizável via lumina.js)
-- Telas de Frases e Teclado conectadas ao backend via WebSocket
-- Dwell click via WebSocket — envio de regiões dos botões ao backend
-
 ### Fase 8 ⏳ — EyeTrax/IrisGazeNet conectado ao frontend
-- TrackingService integrado ao WebSocket — gaze points em tempo real
-- Cursor de gaze ativo no frontend com dados reais
-- Dwell click disparado pelo backend via WebSocket
-
-### Fase 9 ⏳ — Dwell click via WebSocket (regiões dos botões)
-- Frontend envia mapa de regiões dos botões ao backend (dwell_regions)
-- Backend calcula dwell sobre as regiões e emite dwell_completed
-- Teclado virtual e Frases funcionando com gaze real
+- TrackingService integrado ao WebSocket com engine real (não mock)
+- Cursor de gaze ativo com dados de câmera real
+- Calibração com IrisGazeNet via fluxo de 6 pontos existente
 
 ### Fase 10 ⏳ — Piloto clínico com AACD
 - Parceria com AACD ou AME para 5-10 pacientes com ELA

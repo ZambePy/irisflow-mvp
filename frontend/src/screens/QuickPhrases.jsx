@@ -1,15 +1,17 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useDwell } from '../hooks/useDwell'
+import { useGazeSocket } from '../context/GazeSocketContext'
+import { useAppStore } from '../store/appStore'
 import { DWELL_TIME_MS } from '../theme/lumina'
 
-const PHRASES = [
-  { icon: 'sos', color: 'text-secondary', label: 'Urgent', text: 'I need help', fill: true },
-  { icon: 'personal_injury', color: 'text-error', label: 'Medical', text: 'I am in pain', fill: false },
-  { icon: 'contact_emergency', color: 'text-primary', label: 'Call', text: 'Call caregiver', fill: false },
-  { icon: 'water_full', color: 'text-secondary', label: 'Needs', text: 'I need water', fill: false },
-  { icon: 'airline_seat_recline_extra', color: 'text-on-surface-variant', label: 'Adjust', text: 'Uncomfortable', fill: false },
-  { icon: 'favorite', color: 'text-primary', label: 'Social', text: 'Thank you', fill: false },
-]
+// Mapeamento de categorias da API para ícones/cores Material Design
+const CATEGORY_META = {
+  saude:        { icon: 'medical_services',        color: 'text-error',              fill: true  },
+  necessidades: { icon: 'water_full',              color: 'text-secondary',          fill: false },
+  social:       { icon: 'favorite',               color: 'text-primary',            fill: true  },
+  emocoes:      { icon: 'sentiment_satisfied_alt', color: 'text-on-surface-variant', fill: true  },
+}
+const DEFAULT_META = { icon: 'chat', color: 'text-outline', fill: false }
 
 function PhraseCard({ phrase, onSelect }) {
   const [hovered, setHovered] = useState(false)
@@ -50,12 +52,37 @@ function PhraseCard({ phrase, onSelect }) {
 }
 
 export default function QuickPhrases() {
+  const [phrases, setPhrases] = useState([])
   const [lastPhrase, setLastPhrase] = useState('')
+  const [loading, setLoading] = useState(true)
+  const { sendMessage } = useGazeSocket()
+  const setActiveMessage = useAppStore(state => state.setActiveMessage)
+
+  // Busca frases da API ao montar
+  useEffect(() => {
+    fetch('http://localhost:8765/phrases/categories')
+      .then(r => r.json())
+      .then(categories => {
+        const flat = categories.flatMap(cat => {
+          const meta = CATEGORY_META[cat.id] ?? DEFAULT_META
+          return cat.frases.map(frase => ({
+            icon: meta.icon,
+            color: meta.color,
+            fill: meta.fill,
+            label: cat.nome,
+            text: frase,
+          }))
+        })
+        setPhrases(flat)
+      })
+      .catch(err => console.warn('[QuickPhrases] Falha ao buscar frases:', err))
+      .finally(() => setLoading(false))
+  }, [])
 
   const handleSelect = (text) => {
     setLastPhrase(text)
-    console.log('[IrisFlow] Frase selecionada:', text)
-    // TODO: integrar com TTS via WebSocket
+    setActiveMessage(text)          // Atualiza Dashboard — ACTIVE MESSAGE
+    sendMessage('speak', { text })  // TTS via backend Python SAPI
   }
 
   return (
@@ -76,11 +103,18 @@ export default function QuickPhrases() {
         </div>
 
         {/* Grid bento de frases */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-gutter">
-          {PHRASES.map((phrase) => (
-            <PhraseCard key={phrase.text} phrase={phrase} onSelect={handleSelect} />
-          ))}
-        </div>
+        {loading ? (
+          <div className="flex items-center justify-center h-64 text-on-surface-variant">
+            <span className="material-symbols-outlined text-5xl animate-spin mr-4">progress_activity</span>
+            <span className="font-label-caps text-label-caps">Carregando frases…</span>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-gutter">
+            {phrases.map((phrase, i) => (
+              <PhraseCard key={`${phrase.label}-${i}`} phrase={phrase} onSelect={handleSelect} />
+            ))}
+          </div>
+        )}
 
         {/* Decoração de fundo */}
         <div className="fixed bottom-0 right-0 p-12 opacity-10 pointer-events-none">

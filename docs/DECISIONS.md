@@ -158,6 +158,24 @@ no topo da árvore React (`App.jsx`). Reconexão automática a cada
 contexto compartilhado.  
 **Impacto:** Conexão WebSocket estável e singleton em toda a aplicação.
 
+## ADR-026 — TTS sempre via backend Python (nunca window.speechSynthesis)
+
+**Contexto:** Dashboard.jsx usava `window.speechSynthesis` diretamente no browser. Isso não funciona em Electron sem permissões especiais e ignora as configurações de voz do sistema Windows do paciente.  
+**Decisão:** Todo TTS passa por `sendMessage('speak', { text })` → WebSocket → `TTSEngine` Python → SAPI Windows. O frontend nunca acessa a Web Speech API.  
+**Impacto:** Voz do paciente é a voz SAPI configurada no Windows (ajustável pelo cuidador nas configurações de acessibilidade do sistema), não uma voz genérica do browser.
+
+## ADR-027 — Qt.ConnectionType.DirectConnection obrigatório no FastAPI
+
+**Contexto:** `DwellController` herda de `QObject` e usa `pyqtSignal`. Quando o `MockGazeEngine` (rodando em thread separada) emite um gaze point e o sinal `dwell_completed` é disparado, o Qt usa `QueuedConnection` por padrão para conexões cross-thread. Isso posta um evento no Qt event loop — mas sem `QApplication.exec()` (que nunca é chamado no FastAPI), a fila de eventos nunca drena e os sinais são silenciosamente ignorados.  
+**Decisão:** Usar `Qt.ConnectionType.DirectConnection` nas conexões dos sinais `dwell_progress`, `dwell_completed` e `dwell_cancelled` em `irisflow/api/main.py`. O slot roda diretamente na thread emissora (thread do MockGazeEngine). `asyncio.run_coroutine_threadsafe` é thread-safe e funciona corretamente nesse contexto.  
+**Regra:** Qualquer novo sinal Qt conectado a coroutines asyncio no contexto FastAPI deve usar `DirectConnection`.
+
+## ADR-028 — appStore (Zustand) como única fonte de verdade para estado de UI
+
+**Contexto:** `isCalibrated` existia tanto no `GazeSocketContext` (React state) quanto no `appStore` (Zustand), causando dessincronia — calibrar no backend não atualizava o estado global do frontend, e vice-versa. `dwellTime` existia só no appStore mas nunca era enviado ao backend.  
+**Decisão:** `appStore.js` é a fonte única de verdade para: `isCalibrated`, `dwellTime`, `activeMessage`, `activeProfile`. O `GazeSocketContext` expõe `calibrated` como valor derivado do appStore (sem estado local duplicado). Ao conectar ao backend ou quando `dwellTime` muda, o contexto envia `set_dwell_time` automaticamente.  
+**Regra:** Nenhum estado persistente de UI deve existir em dois lugares. `GazeSocketContext` gerencia apenas estado de conexão (`connected`, `engine`, `gazePoint`) e o canal de comunicação (`sendMessage`, `registerDwellRegion`).
+
 ## ADR-020 — Remoção da pose explícita do pipeline de features
 
 **Contexto:** O MPIIGaze Annotation Subset não fornece ângulos de pitch/yaw em radianos — apenas landmarks faciais em coordenadas de pixel. A tentativa de estimar pose via MediaPipe falhou com 100% de taxa de zeros, pois os crops do olho (sem rosto completo) não são suportados pelo MediaPipe Face Mesh.  
