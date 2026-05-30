@@ -22,7 +22,6 @@ const DWELL_OPTIONS = [
 const CURSOR_OPTIONS = ['Pequeno', 'Médio', 'Grande']
 const ENGINES = [
   { id: 'mock', label: 'Mock Engine', icon: 'visibility_off', desc: 'Simulação para testes rápidos de interface.' },
-  { id: 'eyetrax-v2', label: 'EyeTrax v2', icon: 'center_focus_weak', desc: 'Balanceamento entre consumo e precisão.' },
   { id: 'iris-gaze-net', label: 'IrisGazeNet', icon: 'psychology', desc: 'IA avançada com baixa latência e auto-calibragem.', recommended: true },
 ]
 
@@ -154,7 +153,7 @@ export default function ProfileSetup() {
 
             <div className="space-y-6">
               <label className="font-mono text-label-lg text-primary tracking-[0.2em] opacity-80 uppercase">Motor de Rastreamento</label>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {ENGINES.map((eng) => (
                   <div key={eng.id}
                     className={`p-6 rounded-xl relative cursor-pointer transition-all ${engine === eng.id ? 'bg-secondary/10 border-2 border-secondary shadow-[0_0_25px_rgba(91,218,198,0.25)]' : 'bg-surface-container-high border border-white/5 hover:border-white/20'}`}

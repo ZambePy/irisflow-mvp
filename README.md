@@ -2,7 +2,7 @@
 
 > Plataforma assistiva de comunicação por rastreamento ocular para pessoas com ELA, tetraplegia e limitações motoras severas.
 
-![Python](https://img.shields.io/badge/Python-3.11-blue?logo=python) ![React](https://img.shields.io/badge/UI-React%2018%20%2B%20Electron-61DAFB?logo=react) ![EyeTrax](https://img.shields.io/badge/EyeTrax-0.4-orange) ![Windows](https://img.shields.io/badge/Platform-Windows-0078D4?logo=windows)
+![Python](https://img.shields.io/badge/Python-3.11-blue?logo=python) ![React](https://img.shields.io/badge/UI-React%2018%20%2B%20Electron-61DAFB?logo=react) ![IrisGazeNet](https://img.shields.io/badge/IrisGazeNet-MAE%2020.2px-5bdac6) ![Windows](https://img.shields.io/badge/Platform-Windows-0078D4?logo=windows)
 
 ---
 
@@ -42,11 +42,9 @@ IrisFlow UI
   → Accessibility Layer (dwell, fixation, region mapper)
     → TrackingService
       → BaseGazeEngine
-        → EyeTraxAdapter → EyeTrax  (produção)
-        → MockGazeEngine             (desenvolvimento / mouse)
+        → IrisGazeNetAdapter  (produção — MobileNetV2 + SVR)
+        → MockGazeEngine      (desenvolvimento / mouse)
 ```
-
-O EyeTrax é apenas o motor mecânico. A interface, lógica assistiva e experiência do usuário são 100% IrisFlow.
 
 ---
 
@@ -100,7 +98,7 @@ pip install -r requirements.txt
 | UI Design | Tailwind CSS + Glassmorphism (design Lumina) |
 | Backend API | FastAPI + Uvicorn |
 | Comunicação | WebSocket (porta 8765) |
-| Eye tracking | EyeTrax 0.4 (via adapter) / MockGazeEngine |
+| Eye tracking | IrisGazeNet (via adapter) / MockGazeEngine |
 | ML / Gaze Estimation | MobileNetV2 (extrator) + SVR (scikit-learn) |
 | TTS | pyttsx3 + SAPI (Windows) |
 | Perfis | JSON local |
@@ -123,7 +121,7 @@ O IrisFlow implementa o **IrisGazeNet** — pipeline de gaze estimation próprio
 # Treinar o modelo base
 python training/pretrain.py
 
-# Avaliar e comparar com Ridge Regression (baseline EyeTrax)
+# Avaliar o modelo
 python training/evaluate.py
 ```
 
@@ -148,7 +146,7 @@ irisflow-mvp/
 │   ├── app/           # Entrypoint e bootstrap
 │   ├── core/          # Config, eventos, estado, logger
 │   ├── tracking/      # BaseGazeEngine, MockGazeEngine, TrackingService
-│   ├── integrations/  # EyeTraxAdapter (isolado)
+│   ├── integrations/  # IrisGazeNetAdapter (isolado)
 │   ├── accessibility/ # Dwell click, fixation, region mapper
 │   ├── speech/        # TTS e fila de fala
 │   ├── profiles/      # Perfis de usuário
@@ -162,13 +160,13 @@ irisflow-mvp/
 ## Roadmap rápido
 
 - [x] Fase 1 ✅ Base funcional (MockGazeEngine + UI + dwell + TTS)
-- [x] Fase 2 ✅ EyeTrax real + filtros avançados
+- [x] Fase 2 ✅ Pipeline ML + filtros avançados
 - [x] Fase 3 ✅ Frases rápidas + teclado + perfis
 - [x] Fase 4 ✅ Pipeline ML (IrisGazeNet + SVR, MAE 22,7px)
 - [x] Fase 5 ✅ Frontend React + Electron (design Lumina)
 - [x] Fase 6 ✅ Backend FastAPI + WebSocket integrado
 - [ ] Fase 7 ⏳ Ajustes de UI + logo + cores por clínica
-- [ ] Fase 8 ⏳ EyeTrax/IrisGazeNet conectado ao frontend
+- [ ] Fase 8 ⏳ IrisGazeNet conectado ao frontend
 - [ ] Fase 9 ⏳ Dwell click via WebSocket (regiões dos botões)
 - [ ] Fase 10 ⏳ Piloto clínico com AACD
 - [ ] Fase 11 ⏳ Regulação ANVISA + negócio

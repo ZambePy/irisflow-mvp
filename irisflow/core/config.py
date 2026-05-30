@@ -7,8 +7,8 @@ from dataclasses import dataclass, field
 
 @dataclass
 class IrisFlowConfig:
-    # Opções: "mock" | "eyetrax" | "irisgazenet"
-    tracking_engine: str = "eyetrax"
+    # Opções: "mock" | "irisgazenet"
+    tracking_engine: str = "mock"
 
     # Dwell click
     dwell_time_ms: int = 1000       # tempo para ativar (ms)
