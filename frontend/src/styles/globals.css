@@ -82,6 +82,14 @@
     animation: pulse-red 2s infinite;
   }
 
+  @keyframes pulse-emergency {
+    0%, 100% { box-shadow: 0 0 10px rgba(255, 180, 171, 0.4); }
+    50%       { box-shadow: 0 0 40px rgba(255, 180, 171, 0.8); }
+  }
+  .pulse-emergency {
+    animation: pulse-emergency 2s infinite;
+  }
+
   @keyframes rotate-slow {
     from { transform: rotate(0deg); }
     to   { transform: rotate(360deg); }

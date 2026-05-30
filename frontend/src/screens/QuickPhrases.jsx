@@ -1,151 +1,77 @@
-import { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useDwell } from '../hooks/useDwell'
-import { useGazeSocket } from '../context/GazeSocketContext'
-import { useAppStore } from '../store/appStore'
-import { DWELL_TIME_MS } from '../theme/lumina'
 
-// Mapeamento de categorias da API para ícones/cores Material Design
-const CATEGORY_META = {
-  saude:        { icon: 'medical_services',        color: 'text-error',              fill: true  },
-  necessidades: { icon: 'water_full',              color: 'text-secondary',          fill: false },
-  social:       { icon: 'favorite',               color: 'text-primary',            fill: true  },
-  emocoes:      { icon: 'sentiment_satisfied_alt', color: 'text-on-surface-variant', fill: true  },
-}
-const DEFAULT_META = { icon: 'chat', color: 'text-outline', fill: false }
+const CSS = `
+  .qp-glass { background: rgba(30,32,36,0.6); backdrop-filter: blur(20px); border: 1px solid rgba(255,255,255,0.05); }
+  .qp-dwell-bar { position:absolute; bottom:0; left:0; height:4px; background:#5bdac6; width:0%; transition:width 0.5s linear; }
+  .qp-card:hover .qp-dwell-bar { width:100%; }
+  .qp-card:hover { box-shadow: 0 0 30px rgba(91,218,198,0.2); }
+`
 
-function PhraseCard({ phrase, onSelect }) {
-  const [hovered, setHovered] = useState(false)
-  const { onMouseEnter, onMouseLeave } = useDwell(() => onSelect(phrase.text))
+const CATEGORIES = [
+  { id: 'saude', label: 'Saúde', icon: 'medical_services', count: 12 },
+  { id: 'necessidades', label: 'Necessidades', icon: 'restaurant', count: 8 },
+  { id: 'social', label: 'Social', icon: 'forum', count: 15 },
+  { id: 'emocoes', label: 'Emoções', icon: 'favorite', count: 10 },
+]
 
-  const handleEnter = () => { setHovered(true); onMouseEnter() }
-  const handleLeave = () => { setHovered(false); onMouseLeave() }
-
+function CategoryCard({ cat, onClick }) {
+  const { onMouseEnter, onMouseLeave } = useDwell(onClick)
   return (
-    <button
-      className="phrase-card relative overflow-hidden h-[240px] flex flex-col items-start justify-end p-8 glass-card rounded-3xl group transition-all duration-300 hover:ring-4 hover:ring-secondary/50 hover:bg-surface-container-high/40"
-      onMouseEnter={handleEnter}
-      onMouseLeave={handleLeave}
+    <div
+      className="qp-glass qp-card group relative min-h-[260px] rounded-2xl flex flex-col items-center justify-center cursor-pointer p-8 transition-all duration-500 hover:border-secondary hover:scale-[1.02] overflow-hidden border border-white/5"
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
+      onClick={onClick}
     >
-      <span
-        className={`material-symbols-outlined ${phrase.color} text-5xl mb-auto group-hover:scale-110 transition-transform`}
-        style={phrase.fill ? { fontVariationSettings: "'FILL' 1" } : undefined}
-      >
-        {phrase.icon}
-      </span>
-      <div className="text-left">
-        <span className={`block font-label-caps ${phrase.color} text-xs mb-1 uppercase opacity-60`}>
-          {phrase.label}
+      <div className="qp-dwell-bar" />
+      <div className="w-24 h-24 rounded-full bg-secondary/10 flex items-center justify-center mb-6 group-hover:bg-secondary/20 transition-colors">
+        <span className="material-symbols-outlined text-secondary text-5xl" style={{ fontVariationSettings: "'FILL' 1" }}>
+          {cat.icon}
         </span>
-        <h3 className="font-display text-headline-lg text-on-surface">{phrase.text}</h3>
       </div>
-
-      {/* Barra de progresso dwell */}
-      <div
-        className="absolute bottom-0 left-0 h-1 bg-secondary"
-        style={{
-          width: hovered ? '100%' : '0%',
-          transition: hovered ? `width ${DWELL_TIME_MS}ms linear` : 'none',
-        }}
-      />
-    </button>
+      <h2 className="text-headline-lg font-headline-lg text-on-surface group-hover:text-secondary transition-colors">{cat.label}</h2>
+      <p className="text-on-surface-variant font-body-lg">{cat.count} frases</p>
+    </div>
   )
 }
 
 export default function QuickPhrases() {
-  const [phrases, setPhrases] = useState([])
-  const [lastPhrase, setLastPhrase] = useState('')
-  const [loading, setLoading] = useState(true)
-  const { sendMessage } = useGazeSocket()
-  const setActiveMessage = useAppStore(state => state.setActiveMessage)
-
-  // Busca frases da API ao montar
-  useEffect(() => {
-    fetch('http://localhost:8765/phrases/categories')
-      .then(r => r.json())
-      .then(categories => {
-        const flat = categories.flatMap(cat => {
-          const meta = CATEGORY_META[cat.id] ?? DEFAULT_META
-          return cat.frases.map(frase => ({
-            icon: meta.icon,
-            color: meta.color,
-            fill: meta.fill,
-            label: cat.nome,
-            text: frase,
-          }))
-        })
-        setPhrases(flat)
-      })
-      .catch(err => console.warn('[QuickPhrases] Falha ao buscar frases:', err))
-      .finally(() => setLoading(false))
-  }, [])
-
-  const handleSelect = (text) => {
-    setLastPhrase(text)
-    setActiveMessage(text)          // Atualiza Dashboard — ACTIVE MESSAGE
-    sendMessage('speak', { text })  // TTS via backend Python SAPI
-  }
+  const navigate = useNavigate()
 
   return (
-    <>
-      <main className="ml-80 pt-20 overflow-y-auto bg-surface-dim p-margin-desktop min-h-screen pb-32">
-        {/* Cabeçalho da tela */}
-        <div className="mb-12">
-          <h1 className="font-display text-display text-on-surface mb-2">Quick Phrases</h1>
-          <p className="font-body-lg text-on-surface-variant">
-            Focus your gaze to select a message.
-          </p>
-          {lastPhrase && (
-            <div className="mt-4 px-6 py-3 rounded-full bg-secondary/10 border border-secondary/20 inline-flex items-center gap-3">
-              <span className="material-symbols-outlined text-secondary text-sm">check_circle</span>
-              <span className="font-label-caps text-label-caps text-secondary">{lastPhrase}</span>
-            </div>
-          )}
-        </div>
+    <div className="flex flex-col h-full">
+      <style>{CSS}</style>
 
-        {/* Grid bento de frases */}
-        {loading ? (
-          <div className="flex items-center justify-center h-64 text-on-surface-variant">
-            <span className="material-symbols-outlined text-5xl animate-spin mr-4">progress_activity</span>
-            <span className="font-label-caps text-label-caps">Carregando frases…</span>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-gutter">
-            {phrases.map((phrase, i) => (
-              <PhraseCard key={`${phrase.label}-${i}`} phrase={phrase} onSelect={handleSelect} />
-            ))}
-          </div>
-        )}
-
-        {/* Decoração de fundo */}
-        <div className="fixed bottom-0 right-0 p-12 opacity-10 pointer-events-none">
-          <span
-            className="material-symbols-outlined text-[300px]"
-            style={{ fontVariationSettings: "'wght' 100" }}
-          >
-            neurology
-          </span>
+      <div className="flex-1 p-margin-desktop overflow-y-auto">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-gutter-desktop">
+          {CATEGORIES.map((cat) => (
+            <CategoryCard
+              key={cat.id}
+              cat={cat}
+              onClick={() => navigate(`/phrases/${cat.id}`)}
+            />
+          ))}
         </div>
-      </main>
+      </div>
 
-      {/* Footer de segurança */}
-      <footer className="fixed bottom-0 left-0 w-full p-gutter flex justify-between items-center z-50 bg-error-container/20 backdrop-blur-2xl border-t border-error/30 rounded-t-xl shadow-[0_-4px_20px_rgba(147,0,10,0.2)]">
-        <div className="flex items-center gap-unit">
-          <span className="font-label-caps text-error text-xs uppercase font-bold">
-            IrisFlow Assistive Technology
-          </span>
-        </div>
-        <div className="flex gap-margin-desktop">
-          <button className="font-label-caps text-on-error-container hover:bg-error hover:text-on-error px-4 py-2 rounded-lg transition-all">
-            Safety
-          </button>
-          <button className="font-label-caps text-on-error-container hover:bg-error hover:text-on-error px-4 py-2 rounded-lg transition-all">
-            Calibration
-          </button>
-          <button className="font-label-caps text-on-error-container hover:bg-error hover:text-on-error px-4 py-2 rounded-lg transition-all">
-            Privacy
-          </button>
+      <footer className="h-32 bg-surface-container-low/60 backdrop-blur-xl border-t border-white/5 flex items-center px-margin-desktop gap-gutter-desktop shrink-0">
+        <button
+          className="relative group min-w-[280px] h-20 bg-surface-container-highest rounded-2xl flex items-center px-8 gap-4 hover:bg-surface-bright transition-all overflow-hidden border border-white/5"
+          onClick={() => navigate('/')}
+        >
+          <span className="material-symbols-outlined text-primary">arrow_back</span>
+          <span className="font-eye-track-label text-eye-track-label text-on-surface">Voltar para Home</span>
+        </button>
+        <div className="flex-1 relative group h-20">
+          <span className="absolute left-6 top-1/2 -translate-y-1/2 material-symbols-outlined text-on-surface-variant text-3xl">search</span>
+          <input
+            className="w-full h-full bg-surface-container/50 border-2 border-white/5 rounded-2xl pl-16 pr-8 text-headline-md font-body-lg text-on-surface focus:outline-none focus:border-secondary/50 transition-all placeholder:text-on-surface-variant/40"
+            placeholder="Buscar frase..."
+            type="text"
+          />
         </div>
       </footer>
-    </>
+    </div>
   )
 }
