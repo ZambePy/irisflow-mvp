@@ -4,12 +4,12 @@ IrisGazeNetAdapter — encapsula completamente o IrisGazeEstimator.
 REGRA: nenhuma classe, tipo ou import de training/ pode vazar
        além deste arquivo. O IrisFlow só conhece GazePoint.
 
-Fluxo de operação:
-  1. load_model() → carrega IrisGazeEstimator do disco via sys.path lazy
-  2. start() → inicia thread de captura
-  3. Thread: cv2.VideoCapture → MediaPipe → crop olho esquerdo → transform → predict
-  4. (x, y) → _apply_deadzone → GazePoint → _emit_gaze → DwellController
-  5. stop() → sinaliza thread para encerrar → libera câmera
+Crop logic segue exatamente o MediaPipeFaceAlignment do GazeFollower:
+  - Face: bounding box de todos os 478 landmarks, quadrado via delta
+  - Olhos: landmarks 33/133 (esq) e 362/263 (dir) com padding proporcional
+  - Openness: área Shoelace do polígono de abertura de cada olho
+  - Blink: filtra frames onde qualquer olho tem openness <= 10
+  - Filtro: HeuristicFilter(look_ahead=3) — sem Kalman/EMA
 """
 from __future__ import annotations
 
@@ -17,25 +17,93 @@ import math
 import threading
 import time
 
+import numpy as np
+
 from irisflow.tracking.base import BaseGazeEngine
 from irisflow.tracking.types import GazePoint
+from irisflow.tracking.filter import HeuristicFilter
 from irisflow.core.logger import logger
 from irisflow.integrations.irisgazenet.config import IrisGazeNetConfig, irisgazenet_config
+
+# Índices de landmarks para o polígono de abertura de cada olho (Shoelace)
+_LEFT_OPEN_IDX  = [33, 246, 161, 160, 159, 158, 157, 173, 133,
+                   155, 154, 153, 145, 144, 163, 7, 33]
+_RIGHT_OPEN_IDX = [362, 388, 384, 385, 386, 387, 388, 466, 263,
+                   249, 380, 373, 374, 380, 381, 382, 362]
+
+_BLINK_THRESHOLD = 10.0
+
+
+def _shoelace(xs: np.ndarray, ys: np.ndarray) -> float:
+    """Área do polígono pelo método de Shoelace."""
+    return 0.5 * abs(np.dot(xs, np.roll(ys, 1)) - np.dot(ys, np.roll(xs, 1)))
+
+
+def _eye_openness(landmarks, indices: list[int], w: int, h: int) -> float:
+    xs = np.array([landmarks[i].x * w for i in indices], dtype=np.float32)
+    ys = np.array([landmarks[i].y * h for i in indices], dtype=np.float32)
+    return _shoelace(xs, ys)
+
+
+def _face_rect(landmarks, w: int, h: int) -> tuple[int, int, int, int]:
+    """Bounding box quadrado de todos os 478 landmarks do FaceMesh."""
+    xs = [lm.x * w for lm in landmarks]
+    ys = [lm.y * h for lm in landmarks]
+    x_min, x_max = min(xs), max(xs)
+    y_min, y_max = min(ys), max(ys)
+    face_w = x_max - x_min
+    face_h = y_max - y_min
+    delta = (face_w - face_h) / 4
+    if delta > 0:          # wider than tall — pad top/bottom
+        y_min -= delta
+        y_max += delta
+    else:                  # taller than wide — pad left/right
+        x_min += delta
+        x_max -= delta
+    x1 = max(0, int(x_min))
+    y1 = max(0, int(y_min))
+    x2 = min(w, int(x_max))
+    y2 = min(h, int(y_max))
+    return x1, y1, x2, y2
+
+
+def _eye_rect(
+    landmarks,
+    lm_a: int,
+    lm_b: int,
+    scale: float,
+    w: int,
+    h: int,
+    flip: bool = False,
+) -> tuple[int, int, int, int, bool]:
+    """
+    Crop de um olho com padding proporcional ao GazeFollower.
+
+    Returns (x1, y1, x2, y2, out_of_bounds).
+    """
+    x_padding = 20 * scale
+    eye_xs = [landmarks[lm_a].x * w, landmarks[lm_b].x * w]
+    eye_ys = [landmarks[lm_a].y * h, landmarks[lm_b].y * h]
+    cx = (eye_xs[0] + eye_xs[1]) / 2
+    cy = (eye_ys[0] + eye_ys[1]) / 2
+    eye_height = abs(eye_xs[0] - eye_xs[1]) * 0.75
+    x1 = cx - x_padding
+    x2 = cx + x_padding
+    y1 = cy - eye_height * 0.6
+    y2 = cy + eye_height * 0.4
+    oob = x1 < 0 or y1 < 0 or x2 > w or y2 > h
+    x1 = max(0, int(x1));  y1 = max(0, int(y1))
+    x2 = min(w, int(x2));  y2 = min(h, int(y2))
+    return x1, y1, x2, y2, oob
 
 
 class IrisGazeNetAdapter(BaseGazeEngine):
     """
-    Adapter entre o IrisFlow e o IrisGazeEstimator.
+    Adapter entre o IrisFlow e o IrisGazeEstimator v2 (multi-fonte).
 
     Implementa BaseGazeEngine — interface idêntica ao EyeTraxAdapter.
     O restante do IrisFlow (UI, DwellController) não conhece nenhum
     detalhe interno deste adapter.
-
-    Uso:
-        adapter = IrisGazeNetAdapter()
-        adapter.load_model()     # carrega SVR calibrado do disco
-        adapter.start()          # inicia loop de captura em background
-        adapter.stop()           # encerra limpo
     """
 
     def __init__(self, config: IrisGazeNetConfig | None = None) -> None:
@@ -43,35 +111,30 @@ class IrisGazeNetAdapter(BaseGazeEngine):
         self._config = config or irisgazenet_config
         self._running = False
         self._thread: threading.Thread | None = None
-        self._estimator = None      # IrisGazeEstimator — carregado lazy
+        self._estimator = None
         self._model_ready = False
 
-        # Estado da deadzone — mantido entre frames
         self._deadzone_x: float = 0.0
         self._deadzone_y: float = 0.0
         self._deadzone_frames: int = 0
 
+        self._heuristic_filter = HeuristicFilter(look_ahead=3)
+        self._last_valid_x: float = 0.0
+        self._last_valid_y: float = 0.0
+
     # ── Interface pública ─────────────────────────────────────────────────
 
     def start(self) -> None:
-        """
-        Inicia rastreamento em thread de background.
-        Tenta carregar modelo automaticamente se ainda não pronto.
-        """
         if self._running:
             logger.warning("[IrisGazeNetAdapter] já está rodando")
             return
-
         if not self._model_ready:
             self.load_model()
-
         if not self._model_ready:
             raise RuntimeError(
                 "IrisGazeNetAdapter: modelo não carregado. "
-                "Certifique-se de que model_path existe e é válido, "
-                "ou chame calibrate() antes de start()."
+                "Certifique-se de que model_path existe ou chame calibrate()."
             )
-
         self._running = True
         self._thread = threading.Thread(
             target=self._capture_loop,
@@ -82,7 +145,6 @@ class IrisGazeNetAdapter(BaseGazeEngine):
         logger.info("[IrisGazeNetAdapter] Rastreamento iniciado")
 
     def stop(self) -> None:
-        """Para o loop de captura e libera recursos."""
         self._running = False
         if self._thread and self._thread.is_alive():
             self._thread.join(timeout=2.0)
@@ -102,18 +164,6 @@ class IrisGazeNetAdapter(BaseGazeEngine):
     # ── Carregamento de modelo ────────────────────────────────────────────
 
     def load_model(self, path: str | None = None) -> bool:
-        """
-        Carrega IrisGazeEstimator salvo do disco.
-
-        Importa training/model.py via sys.path de forma lazy —
-        training/ nunca é importado no topo deste arquivo.
-
-        Args:
-            path: caminho do arquivo .pkl; usa config.model_path se None.
-
-        Returns:
-            True se carregado com sucesso.
-        """
         import sys
         from pathlib import Path
 
@@ -140,24 +190,14 @@ class IrisGazeNetAdapter(BaseGazeEngine):
 
     def calibrate(
         self,
-        images_tensor: torch.Tensor,
-        targets_np: np.ndarray,
+        face_images,
+        left_images,
+        right_images,
+        rects,
+        targets_np,
         screen_w: int,
         screen_h: int,
     ) -> dict:
-        """
-        Calibra o estimador com dados do paciente.
-        Chamado pela CalibrationScreen após coletar amostras.
-
-        Args:
-            images_tensor: tensor (N, 3, 224, 224) — frames de calibração
-            targets_np:    array (N, 2) — coordenadas reais em pixels (x, y)
-            screen_w:      largura da tela em pixels
-            screen_h:      altura da tela em pixels
-
-        Returns:
-            dict com mae_x, mae_y, mae_total, n_samples, n_support_vectors_x/y
-        """
         import sys
         from pathlib import Path
 
@@ -175,7 +215,10 @@ class IrisGazeNetAdapter(BaseGazeEngine):
                 ) from e
 
         metrics = self._estimator.calibrate(
-            images=images_tensor,
+            face_images=face_images,
+            left_images=left_images,
+            right_images=right_images,
+            rects=rects,
             targets=targets_np,
             screen_w=screen_w,
             screen_h=screen_h,
@@ -186,23 +229,18 @@ class IrisGazeNetAdapter(BaseGazeEngine):
             try:
                 self._estimator.save(self._config.model_path)
                 logger.info(
-                    f"[IrisGazeNetAdapter] Modelo salvo após calibração: "
-                    f"{self._config.model_path}"
+                    f"[IrisGazeNetAdapter] Modelo salvo: {self._config.model_path}"
                 )
             except Exception as e:
-                logger.warning(
-                    f"[IrisGazeNetAdapter] Não foi possível salvar modelo: {e}"
-                )
+                logger.warning(f"[IrisGazeNetAdapter] Não foi possível salvar: {e}")
 
         return metrics
 
     # ── Loop de captura ───────────────────────────────────────────────────
 
     def _capture_loop(self) -> None:
-        """Loop de captura — roda em thread daemon, nunca bloqueia a UI."""
         import cv2
         import torch
-        import numpy as np
         import mediapipe as mp
         from torchvision import transforms
 
@@ -221,14 +259,18 @@ class IrisGazeNetAdapter(BaseGazeEngine):
             min_detection_confidence=0.5,
         )
 
-        transform = transforms.Compose([
+        _norm = dict(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        transform_face = transforms.Compose([
             transforms.ToPILImage(),
             transforms.Resize((224, 224)),
             transforms.ToTensor(),
-            transforms.Normalize(
-                mean=[0.485, 0.456, 0.406],
-                std=[0.229, 0.224, 0.225],
-            ),
+            transforms.Normalize(**_norm),
+        ])
+        transform_eye = transforms.Compose([
+            transforms.ToPILImage(),
+            transforms.Resize((112, 112)),
+            transforms.ToTensor(),
+            transforms.Normalize(**_norm),
         ])
 
         interval = 1.0 / self._config.capture_fps
@@ -242,43 +284,95 @@ class IrisGazeNetAdapter(BaseGazeEngine):
                     time.sleep(interval)
                     continue
 
-                # 1. Detectar face com MediaPipe
                 rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 results = face_mesh.process(rgb)
                 if not results.multi_face_landmarks:
+                    self._emit_gaze(GazePoint(
+                        x=self._last_valid_x, y=self._last_valid_y,
+                        tracking_state="FACE_MISSING",
+                    ))
                     time.sleep(interval)
                     continue
 
-                # 2. Extrair crop do olho esquerdo via landmarks
-                landmarks = results.multi_face_landmarks[0].landmark
+                lm = results.multi_face_landmarks[0].landmark
                 h, w = frame.shape[:2]
-                # Landmarks do olho esquerdo: 33, 133, 160, 144, 158, 153
-                eye_lm = [landmarks[i] for i in [33, 133, 160, 144, 158, 153]]
-                xs = [int(lm.x * w) for lm in eye_lm]
-                ys = [int(lm.y * h) for lm in eye_lm]
-                x1 = max(0, min(xs) - 20)
-                x2 = min(w, max(xs) + 20)
-                y1 = max(0, min(ys) - 15)
-                y2 = min(h, max(ys) + 15)
-                if x2 <= x1 or y2 <= y1:
+
+                # Eye openness (Shoelace) para detecção de piscada
+                left_open  = _eye_openness(lm, _LEFT_OPEN_IDX,  w, h)
+                right_open = _eye_openness(lm, _RIGHT_OPEN_IDX, w, h)
+
+                is_blink = left_open <= _BLINK_THRESHOLD or right_open <= _BLINK_THRESHOLD
+                if is_blink:
+                    self._emit_gaze(GazePoint(
+                        x=self._last_valid_x, y=self._last_valid_y,
+                        left_eye_openness=left_open,
+                        right_eye_openness=right_open,
+                        blink=True,
+                        tracking_state="SUCCESS",
+                    ))
                     time.sleep(interval)
                     continue
-                eye_crop = frame[y1:y2, x1:x2]
 
-                # 3. Pré-processar e predizer
+                # Face crop — bounding box de todos os 478 landmarks, quadrado
+                fx1, fy1, fx2, fy2 = _face_rect(lm, w, h)
+                if fx2 <= fx1 or fy2 <= fy1:
+                    time.sleep(interval)
+                    continue
+
+                # Escala baseada na distância entre os olhos (px)
+                scale = abs(lm[362].x - lm[133].x) * w / 100.0
+
+                lx1, ly1, lx2, ly2, l_oob = _eye_rect(lm, 33,  133, scale, w, h)
+                rx1, ry1, rx2, ry2, r_oob = _eye_rect(lm, 362, 263, scale, w, h)
+
+                tracking_state = "OUT_OF_BOUNDARIES" if (l_oob or r_oob) else "SUCCESS"
+
+                if lx2 <= lx1 or ly2 <= ly1 or rx2 <= rx1 or ry2 <= ry1:
+                    time.sleep(interval)
+                    continue
+
+                face_crop  = frame[fy1:fy2, fx1:fx2]
+                left_crop  = frame[ly1:ly2, lx1:lx2]
+                right_crop = cv2.flip(frame[ry1:ry2, rx1:rx2], 1)
+
+                # Rect normalizado [fw,fh,fx,fy, lw,lh,lx,ly, rw,rh,rx,ry]
+                fw = fx2 - fx1;  fh = fy2 - fy1
+                lw = lx2 - lx1;  lh = ly2 - ly1
+                rw = rx2 - rx1;  rh = ry2 - ry1
+                denom = np.array([w, h, w, h, w, h, w, h, w, h, w, h], dtype=np.float32)
+                rect = np.array(
+                    [fw, fh, fx1, fy1, lw, lh, lx1, ly1, rw, rh, rx1, ry1],
+                    dtype=np.float32,
+                ) / denom
+
                 try:
-                    img_tensor = transform(eye_crop).unsqueeze(0)   # (1, 3, 224, 224)
-                    x, y = self._estimator.predict(img_tensor)
+                    face_t  = transform_face(face_crop).unsqueeze(0)
+                    left_t  = transform_eye(left_crop).unsqueeze(0)
+                    right_t = transform_eye(right_crop).unsqueeze(0)
+                    raw_x, raw_y = self._estimator.predict(face_t, left_t, right_t, rect)
                 except Exception as e:
                     logger.debug(f"[IrisGazeNetAdapter] Erro predict: {e}")
                     time.sleep(interval)
                     continue
 
-                # 4. Aplicar deadzone
-                x, y = self._apply_deadzone(x, y)
+                # Deadzone
+                x, y = self._apply_deadzone(raw_x, raw_y)
 
-                # 5. Emitir GazePoint
-                self._emit_gaze(GazePoint(x=x, y=y, confidence=1.0))
+                # HeuristicFilter
+                x, y = self._heuristic_filter.filter_values(x, y)
+
+                self._last_valid_x = x
+                self._last_valid_y = y
+
+                self._emit_gaze(GazePoint(
+                    x=x, y=y,
+                    raw_x=raw_x, raw_y=raw_y,
+                    confidence=1.0,
+                    left_eye_openness=left_open,
+                    right_eye_openness=right_open,
+                    blink=False,
+                    tracking_state=tracking_state,
+                ))
 
                 time.sleep(interval)
 
@@ -292,21 +386,12 @@ class IrisGazeNetAdapter(BaseGazeEngine):
     # ── Deadzone ──────────────────────────────────────────────────────────
 
     def _apply_deadzone(self, x: float, y: float) -> tuple[float, float]:
-        """
-        Suprime microtremores oculares involuntários.
-
-        Trava o cursor enquanto o movimento for menor que deadzone_radius
-        por menos de deadzone_frames frames consecutivos. Libera após
-        fixação prolongada ou ao detectar movimento real.
-        """
         dist = math.hypot(x - self._deadzone_x, y - self._deadzone_y)
         if dist < self._config.deadzone_radius:
             self._deadzone_frames += 1
             if self._deadzone_frames < self._config.deadzone_frames:
                 return self._deadzone_x, self._deadzone_y
-            # Fixação prolongada: libera o cursor na posição atual
             return x, y
-        # Movimento real: reset e deixa passar
         self._deadzone_frames = 0
         self._deadzone_x = x
         self._deadzone_y = y

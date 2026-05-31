@@ -8,11 +8,17 @@ import time
 
 @dataclass(frozen=True)
 class GazePoint:
-    """Ponto de olhar normalizado e tipado pelo IrisFlow."""
-    x: float                        # pixels na tela
-    y: float                        # pixels na tela
-    confidence: float = 1.0         # 0.0–1.0
+    """Ponto de olhar tipado pelo IrisFlow."""
+    x: float                              # pixels na tela (filtrado)
+    y: float                              # pixels na tela (filtrado)
+    confidence: float = 1.0              # 0.0–1.0
     timestamp: float = field(default_factory=time.monotonic)
+    raw_x: float = 0.0                   # predição SVR antes do filtro
+    raw_y: float = 0.0                   # predição SVR antes do filtro
+    left_eye_openness: float = 0.0       # área do polígono do olho esquerdo (Shoelace, px²)
+    right_eye_openness: float = 0.0      # área do polígono do olho direito  (Shoelace, px²)
+    blink: bool = False                  # True quando piscar detectado
+    tracking_state: str = "SUCCESS"      # "SUCCESS" | "FACE_MISSING" | "OUT_OF_BOUNDARIES"
 
     def is_valid(self) -> bool:
         """Retorna True se o ponto tem confiança mínima aceitável."""

@@ -1,9 +1,13 @@
 """
 IrisFlow — pipeline de gaze estimation inspirado no GazeFollower (Zhu et al., ACM CGIT 2025).
 
-Arquitetura:
-  MobileNetV2 (pré-treinado ImageNet, backbone congelado)
-    → AdaptiveAvgPool2d → vetor (1280,)
+Arquitetura v2 (multi-fonte):
+  MobileNetV2 (backbone único, congelado, pré-treinado ImageNet)
+    face_patch  (224×224) → pool → 1280 features
+    left_eye    (112×112) → pool → primeiros 640 features
+    right_eye   (112×112, flip H) → pool → primeiros 640 features
+    rect        (12 floats normalizados) — geometria espacial
+    concat → vetor (2572,)
     → StandardScaler
     → SVR-X + SVR-Y
     → (x_pixels, y_pixels)
@@ -20,9 +24,10 @@ import torchvision.models as models
 
 class IrisFeatureExtractor(nn.Module):
     """
-    Extrator de features visuais baseado em MobileNetV2.
+    Extrator multi-fonte: face + dois olhos + geometria.
 
-    Equivalente ao MGazeNet no GazeFollower: backbone pré-treinado usado
+    Único backbone MobileNetV2 compartilhado entre os três canais visuais.
+    Equivalente ao MGazeNet do GazeFollower: backbone pré-treinado usado
     apenas para extração — nenhum parâmetro é treinado ou atualizado.
     """
 
@@ -40,44 +45,58 @@ class IrisFeatureExtractor(nn.Module):
 
         self.eval()
 
-    def forward(self, image: torch.Tensor) -> torch.Tensor:
-        """
-        Extrai vetor de features de um lote de imagens.
+    def _backbone(self, img: torch.Tensor) -> torch.Tensor:
+        """Extrai vetor 1280-dim de um lote de imagens."""
+        return self.pool(self.features(img)).flatten(1)
 
-        Args:
-            image: tensor (B, 3, 224, 224)
+    def forward(
+        self,
+        face_img: torch.Tensor,   # (B, 3, 224, 224)
+        left_img: torch.Tensor,   # (B, 3, 112, 112)
+        right_img: torch.Tensor,  # (B, 3, 112, 112) — já com flip H
+        rect: torch.Tensor,       # (B, 12) — geometria normalizada
+    ) -> torch.Tensor:
+        """
+        Extrai e concatena features de três fontes visuais + geometria.
 
         Returns:
-            tensor (B, 1280) — features brutas do backbone
+            tensor (B, 2572)  [1280 face + 640 left + 640 right + 12 rect]
         """
-        return self.pool(self.features(image)).flatten(1)
+        face_feat  = self._backbone(face_img)            # (B, 1280)
+        left_feat  = self._backbone(left_img)[:, :640]   # (B, 640)
+        right_feat = self._backbone(right_img)[:, :640]  # (B, 640)
+        return torch.cat([face_feat, left_feat, right_feat, rect], dim=1)
 
-    def extract_numpy(self, image: torch.Tensor) -> np.ndarray:
+    def extract_numpy(
+        self,
+        face_img: torch.Tensor,
+        left_img: torch.Tensor,
+        right_img: torch.Tensor,
+        rect: "np.ndarray | torch.Tensor",
+    ) -> np.ndarray:
         """
-        Wrapper que retorna as features como array numpy.
+        Wrapper que retorna (B, 2572) como array numpy.
 
-        Útil para passar diretamente ao SVR (scikit-learn usa numpy).
-
-        Args:
-            image: tensor (B, 3, 224, 224)
-
-        Returns:
-            array numpy (B, 1280)
+        rect pode ser np.ndarray (B, 12) ou (12,) — dimensão batch adicionada
+        automaticamente se necessário.
         """
         with torch.no_grad():
-            return self.forward(image).cpu().numpy()
+            if not isinstance(rect, torch.Tensor):
+                rect = torch.as_tensor(rect, dtype=torch.float32)
+            if rect.dim() == 1:
+                rect = rect.unsqueeze(0)
+            return self.forward(face_img, left_img, right_img, rect).cpu().numpy()
 
     def output_dim(self) -> int:
-        """Retorna a dimensão do vetor de features (sempre 1280)."""
-        return 1280
+        """Dimensão do vetor de features concatenado."""
+        return 2572
 
 
 class IrisGazeEstimator:
     """
-    Estimador completo de olhar = IrisFeatureExtractor + SVR.
+    Estimador completo de olhar = IrisFeatureExtractor (multi-fonte) + SVR.
 
-    Equivalente ao GazeFollower completo: backbone extrai features,
-    dois SVR separados mapeiam features → coordenadas de tela.
+    feature_version=2: face(1280) + left_eye(640) + right_eye(640) + rect(12) = 2572.
 
     Requer calibração antes de fazer predições. Sem fallback.
     """
@@ -95,7 +114,10 @@ class IrisGazeEstimator:
 
     def calibrate(
         self,
-        images: torch.Tensor | None,
+        face_images: "torch.Tensor | None",
+        left_images: "torch.Tensor | None",
+        right_images: "torch.Tensor | None",
+        rects: "np.ndarray | None",
         targets: np.ndarray,
         screen_w: int = 1920,
         screen_h: int = 1080,
@@ -103,25 +125,19 @@ class IrisGazeEstimator:
         svr_C: float = 10.0,
         svr_gamma: str = "scale",
         svr_epsilon: float = 0.1,
-        features: np.ndarray | None = None,
+        features: "np.ndarray | None" = None,
     ) -> dict:
         """
         Treina SVR-X e SVR-Y com dados de calibração do paciente.
 
-        Processo idêntico ao GazeFollower: backbone extrai features,
-        StandardScaler normaliza, dois SVR separados aprendem o mapeamento.
-
         Args:
-            images:      tensor (N, 3, 224, 224) — frames de calibração;
-                         pode ser None se features já extraídas forem fornecidas
-            targets:     array (N, 2) — coordenadas reais (x_px, y_px)
-            screen_w:    largura da tela em pixels
-            screen_h:    altura da tela em pixels
-            svr_kernel:  kernel do SVR (padrão: 'rbf')
-            svr_C:       parâmetro de regularização C
-            svr_gamma:   parâmetro gamma do kernel
-            svr_epsilon: margem epsilon do SVR
-            features:    array (N, 1280) pré-extraído — se fornecido, pula extração
+            face_images:  tensor (N, 3, 224, 224) — patches de rosto
+            left_images:  tensor (N, 3, 112, 112) — patches do olho esquerdo
+            right_images: tensor (N, 3, 112, 112) — olho direito com flip H
+            rects:        array (N, 12) — geometria normalizada
+                          [fw,fh,fx,fy, lw,lh,lx,ly, rw,rh,rx,ry] / [img_w,img_h]*6
+            targets:      array (N, 2) — coordenadas reais (x_px, y_px)
+            features:     array (N, 2572) pré-extraído — pula extração se fornecido
 
         Returns:
             dict com mae_x, mae_y, mae_total (pixels), n_samples,
@@ -134,7 +150,9 @@ class IrisGazeEstimator:
         self.screen_h = screen_h
 
         if features is None:
-            features = self.extractor.extract_numpy(images)  # (N, 1280)
+            features = self.extractor.extract_numpy(
+                face_images, left_images, right_images, rects
+            )  # (N, 2572)
 
         self.scaler = StandardScaler()
         features_scaled = self.scaler.fit_transform(features)
@@ -163,12 +181,21 @@ class IrisGazeEstimator:
             "n_support_vectors_y": len(self.svr_y.support_vectors_),
         }
 
-    def predict(self, image: torch.Tensor) -> tuple[float, float]:
+    def predict(
+        self,
+        face_img: torch.Tensor,   # (1, 3, 224, 224)
+        left_img: torch.Tensor,   # (1, 3, 112, 112)
+        right_img: torch.Tensor,  # (1, 3, 112, 112) — flip H
+        rect: "np.ndarray | torch.Tensor",  # (12,) ou (1, 12)
+    ) -> tuple[float, float]:
         """
-        Prediz coordenadas de tela para um frame de olho.
+        Prediz coordenadas de tela com inputs multi-fonte.
 
         Args:
-            image: tensor (1, 3, 224, 224) — frame do olho pré-processado
+            face_img:  tensor (1, 3, 224, 224)
+            left_img:  tensor (1, 3, 112, 112)
+            right_img: tensor (1, 3, 112, 112) — flip H já aplicado
+            rect:      array (12,) ou (1, 12) — geometria normalizada
 
         Returns:
             (x_pixels, y_pixels) clampado dentro dos limites da tela
@@ -181,7 +208,7 @@ class IrisGazeEstimator:
                 "IrisGazeEstimator não calibrado. "
                 "Chame calibrate() antes de predict()."
             )
-        features = self.extractor.extract_numpy(image)  # (1, 1280)
+        features = self.extractor.extract_numpy(face_img, left_img, right_img, rect)
         features_scaled = self.scaler.transform(features)
         x = float(self.svr_x.predict(features_scaled)[0])
         y = float(self.svr_y.predict(features_scaled)[0])
@@ -207,7 +234,8 @@ class IrisGazeEstimator:
             "screen_w": self.screen_w,
             "screen_h": self.screen_h,
             "feature_dim": self.extractor.output_dim(),
-            "architecture": "MobileNetV2+SVR (IrisFlow v1, inspirado GazeFollower)",
+            "feature_version": 2,
+            "architecture": "MobileNetV2+SVR multi-fonte (IrisFlow v2, GazeFollower)",
         }
         with open(path, "wb") as f:
             pickle.dump(data, f)
@@ -216,6 +244,10 @@ class IrisGazeEstimator:
     def load(cls, path: str) -> "IrisGazeEstimator":
         """
         Carrega modelo salvo do disco.
+
+        Suporta feature_version=2 (multi-fonte). Modelos v1 (1280-dim,
+        sem feature_version) podem ser carregados mas o predict falhará —
+        recalibre com o novo pipeline.
 
         Args:
             path: caminho do arquivo .pkl salvo por save()
@@ -253,53 +285,66 @@ if __name__ == "__main__":
     print(f"  Output dim: {extractor.output_dim()}")
     print()
 
-    # ── IrisGazeEstimator — extração ─────────────────────────────────────
-    estimator = IrisGazeEstimator(pretrained=False)
-
-    images_batch = torch.rand(4, 3, 224, 224)
-    features_out = estimator.extractor.extract_numpy(images_batch)
-
-    print("IrisGazeEstimator")
-    print("  Teste de extração de features:")
-    print(f"    Input:  {tuple(images_batch.shape)}")
-    print(f"    Output: {features_out.shape}  (numpy array)")
+    B = 2
+    face_t = torch.rand(B, 3, 224, 224)
+    left_t = torch.rand(B, 3, 112, 112)
+    right_t = torch.rand(B, 3, 112, 112)
+    rect_t = torch.rand(B, 12)
+    feat = extractor.extract_numpy(face_t, left_t, right_t, rect_t)
+    assert feat.shape == (B, 2572), f"Esperado (B, 2572), obtido {feat.shape}"
+    print(f"  Smoke test extract_numpy: {feat.shape}  OK")
     print()
 
-    # ── Calibração com dados sintéticos ──────────────────────────────────
+    # ── IrisGazeEstimator — calibração ───────────────────────────────────
+    estimator = IrisGazeEstimator(pretrained=False)
+
     N = 50
-    images_cal = torch.rand(N, 3, 224, 224)
+    face_cal  = torch.rand(N, 3, 224, 224)
+    left_cal  = torch.rand(N, 3, 112, 112)
+    right_cal = torch.rand(N, 3, 112, 112)
+    rects_cal = np.random.uniform(0, 1, (N, 12)).astype(np.float32)
     targets_cal = np.column_stack([
         np.random.uniform(0, 1920, N),
         np.random.uniform(0, 1080, N),
     ])
 
-    metrics = estimator.calibrate(images_cal, targets_cal)
+    metrics = estimator.calibrate(
+        face_cal, left_cal, right_cal, rects_cal, targets_cal
+    )
 
+    print("IrisGazeEstimator")
     print("  Teste de calibração com dados sintéticos:")
     print(f"    N={N} amostras sintéticas")
-    print("    Métricas de treino:")
-    print(f"      MAE-X: {metrics['mae_x']:.1f} px")
-    print(f"      MAE-Y: {metrics['mae_y']:.1f} px")
-    print(f"      Support vectors X: {metrics['n_support_vectors_x']}")
-    print(f"      Support vectors Y: {metrics['n_support_vectors_y']}")
+    print(f"    MAE-X: {metrics['mae_x']:.1f} px")
+    print(f"    MAE-Y: {metrics['mae_y']:.1f} px")
+    print(f"    Support vectors X: {metrics['n_support_vectors_x']}")
+    print(f"    Support vectors Y: {metrics['n_support_vectors_y']}")
     print()
 
     # ── Predict ──────────────────────────────────────────────────────────
-    single_frame = torch.rand(1, 3, 224, 224)
-    x_pred, y_pred = estimator.predict(single_frame)
+    face_s  = torch.rand(1, 3, 224, 224)
+    left_s  = torch.rand(1, 3, 112, 112)
+    right_s = torch.rand(1, 3, 112, 112)
+    rect_s  = np.random.uniform(0, 1, 12).astype(np.float32)
+    x_pred, y_pred = estimator.predict(face_s, left_s, right_s, rect_s)
 
     print("  Teste de predict:")
-    print(f"    Input: {tuple(single_frame.shape)}")
     print(f"    Output: (x={x_pred:.1f}, y={y_pred:.1f})  (coordenadas em pixels)")
     print()
 
     # ── Save / Load ───────────────────────────────────────────────────────
-    tmp_path = os.path.join(tempfile.gettempdir(), "test_irisgazenet.pkl")
+    tmp_path = os.path.join(tempfile.gettempdir(), "test_irisgazenet_v2.pkl")
     estimator.save(tmp_path)
     loaded = IrisGazeEstimator.load(tmp_path)
-    x_load, y_load = loaded.predict(single_frame)
+    x_load, y_load = loaded.predict(face_s, left_s, right_s, rect_s)
 
     print("  Teste de save/load:")
     print(f"    Salvo em: {tmp_path}")
     print(f"    Carregado com sucesso: {loaded.is_calibrated}")
     print(f"    Predict após load: (x={x_load:.1f}, y={y_load:.1f})  (igual ao anterior)")
+    assert abs(x_load - x_pred) < 0.01 and abs(y_load - y_pred) < 0.01, (
+        f"Save/load divergiu! {x_pred:.4f}≠{x_load:.4f} ou {y_pred:.4f}≠{y_load:.4f}"
+    )
+    print("    Consistência save/load: OK")
+    print()
+    print("Todos os testes passaram.")

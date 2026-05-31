@@ -64,8 +64,12 @@ export function GazeSocketProvider({ children }) {
             console.log('[IrisFlow] Engine:', data.engine)
             break
           case 'calibration_complete':
-            // API Zustand imperativa — segura dentro de closure de effect
             useAppStore.getState().setCalibrated(true)
+            break
+          case 'calibration_result':
+            if (data.status === 'calibrated') {
+              useAppStore.getState().setCalibrated(true)
+            }
             break
           case 'dwell_progress':
             dwellHandlers.current[data.region_id]?.onProgress?.(data.progress)

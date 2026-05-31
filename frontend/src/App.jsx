@@ -1,4 +1,5 @@
-import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import { useState, useEffect } from 'react'
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { GazeSocketProvider, useGazeSocket } from './context/GazeSocketContext'
 import TopBar from './components/TopBar'
 import SideNav from './components/SideNav'
@@ -14,7 +15,6 @@ import ProfileSetup from './screens/ProfileSetup'
 import Settings from './screens/Settings'
 import OnboardingReady from './screens/OnboardingReady'
 
-// Shell principal — SideNav + TopBar em flex (sem offsets manuais nas telas)
 function AppShell() {
   const { gazePoint } = useGazeSocket()
   return (
@@ -31,6 +31,7 @@ function AppShell() {
             <Route path="/favorites" element={<Favorites />} />
             <Route path="/keyboard" element={<Keyboard />} />
             <Route path="/settings" element={<Settings />} />
+            <Route path="/calibration" element={<Calibration />} />
           </Routes>
         </div>
       </div>
@@ -38,15 +39,34 @@ function AppShell() {
   )
 }
 
-// Calibração — shell próprio (topbar e sidenav colapsada internos)
-function CalibrationShell() {
-  const { gazePoint } = useGazeSocket()
-  return (
-    <>
-      <GazeCursor position={gazePoint} />
-      <Calibration />
-    </>
-  )
+function AppBootstrap() {
+  const [status, setStatus] = useState('loading')
+
+  useEffect(() => {
+    fetch('http://localhost:8765/profiles/')
+      .then((r) => r.json())
+      .then((data) => {
+        setStatus(Array.isArray(data) && data.length > 0 ? 'has-profile' : 'no-profile')
+      })
+      .catch(() => setStatus('no-profile'))
+  }, [])
+
+  if (status === 'loading') {
+    return (
+      <div className="fixed inset-0 flex items-center justify-center" style={{ background: '#0A0C10' }}>
+        <div
+          className="rounded-full animate-spin"
+          style={{ width: 32, height: 32, border: '2px solid #5bdac6', borderTopColor: 'transparent' }}
+        />
+      </div>
+    )
+  }
+
+  if (status === 'no-profile') {
+    return <Navigate to="/welcome" replace />
+  }
+
+  return <AppShell />
 }
 
 export default function App() {
@@ -54,18 +74,13 @@ export default function App() {
     <GazeSocketProvider>
       <BrowserRouter>
         <Routes>
-          {/* Onboarding — sem shell */}
+          {/* Rotas sem shell */}
           <Route path="/welcome" element={<Welcome />} />
           <Route path="/profile-setup" element={<ProfileSetup />} />
-
-          {/* Onboarding conclusão — sem shell */}
           <Route path="/onboarding-ready" element={<OnboardingReady />} />
 
-          {/* Calibração — shell próprio */}
-          <Route path="/calibration" element={<CalibrationShell />} />
-
-          {/* App principal — com shell */}
-          <Route path="/*" element={<AppShell />} />
+          {/* Todas as outras rotas passam pelo bootstrap */}
+          <Route path="/*" element={<AppBootstrap />} />
         </Routes>
       </BrowserRouter>
     </GazeSocketProvider>

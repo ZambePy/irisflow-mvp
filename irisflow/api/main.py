@@ -59,10 +59,14 @@ app.include_router(calibration.router, prefix="/calibration", tags=["calibration
 async def startup() -> None:
     logger.info("[API] IrisFlow API iniciada em ws://127.0.0.1:8765/ws")
     logger.info("[API] Endpoints disponíveis:")
-    logger.info("[API]   WS  /ws")
-    logger.info("[API]   GET /health")
-    logger.info("[API]   GET /profiles/")
-    logger.info("[API]   GET /phrases/categories")
+    for route in app.routes:
+        methods = getattr(route, "methods", None)
+        path    = getattr(route, "path", "")
+        if methods:
+            for m in sorted(methods):
+                logger.info(f"[API]   {m:<6} {path}")
+        else:
+            logger.info(f"[API]   WS     {path}")
 
 
 @app.get("/health")
@@ -158,7 +162,13 @@ async def start_tracking(websocket: WebSocket, engine_name: str) -> None:
                     "type": "gaze",
                     "x": point.x,
                     "y": point.y,
+                    "raw_x": point.raw_x,
+                    "raw_y": point.raw_y,
                     "confidence": point.confidence,
+                    "left_eye_openness": point.left_eye_openness,
+                    "right_eye_openness": point.right_eye_openness,
+                    "blink": point.blink,
+                    "tracking_state": point.tracking_state,
                     "timestamp": point.timestamp,
                 }),
                 loop,
