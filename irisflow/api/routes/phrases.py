@@ -7,11 +7,26 @@ from irisflow.storage.phrases_store import PhrasesStore
 router = APIRouter()
 store = PhrasesStore()
 
+_ICON_MAP = {
+    "saude":        "medical_services",
+    "necessidades": "restaurant",
+    "social":       "forum",
+    "emocoes":      "favorite",
+}
+
 
 @router.get("/categories")
 def get_categories() -> list[dict]:
-    """Retorna todas as categorias de frases."""
-    return store.get_categories()
+    """Retorna categorias no formato esperado pelo frontend."""
+    return [
+        {
+            "id":    cat["id"],
+            "label": cat["nome"],
+            "icon":  _ICON_MAP.get(cat["id"], "chat"),
+            "count": len(cat.get("frases", [])),
+        }
+        for cat in store.get_categories()
+    ]
 
 
 @router.get("/{category_id}")

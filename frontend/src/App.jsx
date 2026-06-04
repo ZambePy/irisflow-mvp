@@ -1,87 +1,97 @@
-import { useState, useEffect } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
-import { GazeSocketProvider, useGazeSocket } from './context/GazeSocketContext'
+import { useState, useEffect } from 'react'
+import { GazeSocketProvider } from './context/GazeSocketContext'
 import TopBar from './components/TopBar'
 import SideNav from './components/SideNav'
 import GazeCursor from './components/GazeCursor'
 import Dashboard from './screens/Dashboard'
 import QuickPhrases from './screens/QuickPhrases'
 import PhraseList from './screens/PhraseList'
-import Favorites from './screens/Favorites'
 import Keyboard from './screens/Keyboard'
+import Favorites from './screens/Favorites'
 import Calibration from './screens/Calibration'
+import Settings from './screens/Settings'
 import Welcome from './screens/Welcome'
 import ProfileSetup from './screens/ProfileSetup'
-import Settings from './screens/Settings'
 import OnboardingReady from './screens/OnboardingReady'
 
 function AppShell() {
-  const { gazePoint } = useGazeSocket()
   return (
-    <div className="flex h-screen overflow-hidden bg-background text-on-surface">
-      <GazeCursor position={gazePoint} />
+    <div className="flex h-screen overflow-hidden">
       <SideNav />
-      <div className="flex-grow flex flex-col min-w-0">
+      <div className="flex flex-col flex-1 min-w-0">
         <TopBar />
-        <div className="flex-grow overflow-y-auto min-h-0">
+        <main className="flex-1 overflow-y-auto">
           <Routes>
-            <Route path="/" element={<Dashboard />} />
-            <Route path="/phrases" element={<QuickPhrases />} />
+            <Route path="/"                  element={<Dashboard />} />
+            <Route path="/phrases"           element={<QuickPhrases />} />
             <Route path="/phrases/:category" element={<PhraseList />} />
-            <Route path="/favorites" element={<Favorites />} />
-            <Route path="/keyboard" element={<Keyboard />} />
-            <Route path="/settings" element={<Settings />} />
-            <Route path="/calibration" element={<Calibration />} />
+            <Route path="/keyboard"          element={<Keyboard />} />
+            <Route path="/favorites"         element={<Favorites />} />
+            <Route path="/calibration"       element={<Calibration />} />
+            <Route path="/settings"          element={<Settings />} />
+            <Route path="*"                  element={<Navigate to="/" />} />
           </Routes>
-        </div>
+        </main>
       </div>
+      <GazeCursor />
     </div>
   )
 }
 
 function AppBootstrap() {
-  const [status, setStatus] = useState('loading')
+  const [ready, setReady] = useState(false)
+  const [hasProfile, setHasProfile] = useState(false)
 
   useEffect(() => {
-    fetch('http://localhost:8765/profiles/')
-      .then((r) => r.json())
-      .then((data) => {
-        setStatus(Array.isArray(data) && data.length > 0 ? 'has-profile' : 'no-profile')
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 2000)
+
+    fetch('http://localhost:8765/profiles/', { signal: controller.signal })
+      .then(r => r.json())
+      .then(data => {
+        setHasProfile(Array.isArray(data) && data.length > 0)
       })
-      .catch(() => setStatus('no-profile'))
+      .catch(() => {
+        // backend offline ou timeout → vai para home sem onboarding
+        setHasProfile(true)
+      })
+      .finally(() => {
+        clearTimeout(timeout)
+        setReady(true)
+      })
   }, [])
 
-  if (status === 'loading') {
+  if (!ready) {
     return (
-      <div className="fixed inset-0 flex items-center justify-center" style={{ background: '#0A0C10' }}>
-        <div
-          className="rounded-full animate-spin"
-          style={{ width: 32, height: 32, border: '2px solid #5bdac6', borderTopColor: 'transparent' }}
-        />
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="w-8 h-8 border-2 border-secondary border-t-transparent rounded-full animate-spin" />
       </div>
     )
   }
 
-  if (status === 'no-profile') {
-    return <Navigate to="/welcome" replace />
-  }
+  return (
+    <Routes>
+      {/* Onboarding — sem shell */}
+      <Route path="/welcome"          element={<Welcome />} />
+      <Route path="/profile-setup"    element={<ProfileSetup />} />
+      <Route path="/onboarding-ready" element={<OnboardingReady />} />
 
-  return <AppShell />
+      {/* App principal — com shell */}
+      <Route path="/*" element={
+        hasProfile
+          ? <AppShell />
+          : <Navigate to="/welcome" replace />
+      } />
+    </Routes>
+  )
 }
 
 export default function App() {
   return (
     <GazeSocketProvider>
       <BrowserRouter>
-        <Routes>
-          {/* Rotas sem shell */}
-          <Route path="/welcome" element={<Welcome />} />
-          <Route path="/profile-setup" element={<ProfileSetup />} />
-          <Route path="/onboarding-ready" element={<OnboardingReady />} />
-
-          {/* Todas as outras rotas passam pelo bootstrap */}
-          <Route path="/*" element={<AppBootstrap />} />
-        </Routes>
+        <AppBootstrap />
       </BrowserRouter>
     </GazeSocketProvider>
   )

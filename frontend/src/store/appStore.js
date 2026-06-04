@@ -13,6 +13,6 @@ export const useAppStore = create((set) => ({
   isCalibrated: false,
   setCalibrated: (v) => set({ isCalibrated: v }),
 
-  trackingEngine: 'eyetrax',
+  trackingEngine: 'mock',
   setTrackingEngine: (e) => set({ trackingEngine: e }),
 }))

@@ -1,20 +1,22 @@
 import { NavLink, useNavigate } from 'react-router-dom'
 import { useDwell } from '../hooks/useDwell'
+import { useGazeSocket } from '../context/GazeSocketContext'
 
 const links = [
-  { to: '/',          icon: 'home',     label: 'Home',      end: true },
-  { to: '/favorites', icon: 'star',     label: 'Favorites'           },
-  { to: '/history',   icon: 'history',  label: 'History'             },
-  { to: '/settings',  icon: 'settings', label: 'Settings'            },
-  { to: '/profile-setup', icon: 'person', label: 'Profile'             },
+  { to: '/',            icon: 'home',     label: 'Home',     end: true },
+  { to: '/favorites',   icon: 'star',     label: 'Favorites'          },
+  { to: '/settings',    icon: 'settings', label: 'Settings'           },
+  { to: '/profile-setup', icon: 'person', label: 'Profile'            },
 ]
 
 export default function SideNav() {
   const navigate = useNavigate()
-  const { onMouseEnter, onMouseLeave } = useDwell(() => alert('EMERGENCY'))
+  const { sendMessage } = useGazeSocket()
+  const handleEmergency = () => sendMessage('emergency')
+  const { onMouseEnter, onMouseLeave } = useDwell(handleEmergency)
 
   return (
-    <aside className="h-screen w-80 shrink-0 bg-surface-container/90 backdrop-blur-2xl border-r border-white/5 flex flex-col py-8 z-50">
+    <aside className="h-full w-80 shrink-0 bg-surface-container/90 backdrop-blur-2xl border-r border-white/5 flex flex-col py-8 z-50">
       {/* Logo */}
       <div className="px-8 mb-12">
         <div className="w-16 h-16 rounded-2xl bg-primary-container flex items-center justify-center mb-4">
@@ -54,7 +56,7 @@ export default function SideNav() {
           className="pulse-emergency w-full bg-error-container text-error px-6 py-5 rounded-xl font-bold hover:scale-95 transition-transform flex items-center justify-center gap-3"
           onMouseEnter={onMouseEnter}
           onMouseLeave={onMouseLeave}
-          onClick={() => alert('EMERGENCY')}
+          onClick={handleEmergency}
         >
           <span className="material-symbols-outlined">emergency_home</span>
           EMERGENCY
@@ -62,10 +64,10 @@ export default function SideNav() {
 
         <button
           className="mt-6 flex items-center text-on-surface-variant hover:text-primary transition-colors w-full py-4"
-          onClick={() => navigate('/help')}
+          onClick={() => navigate('/calibration')}
         >
-          <span className="material-symbols-outlined mr-3">help</span>
-          <span className="font-label-lg text-label-lg">Help Center</span>
+          <span className="material-symbols-outlined mr-3">adjust</span>
+          <span className="font-label-lg text-label-lg">Calibrar</span>
         </button>
       </div>
     </aside>

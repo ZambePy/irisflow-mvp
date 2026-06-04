@@ -15,7 +15,7 @@ class Profile:
     name: str
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     dwell_time_ms: int = 1000
-    tracking_engine: str = "eyetrax"
+    tracking_engine: str = "mock"
     favorite_phrases: list = field(default_factory=list)
     created_at: str = field(default_factory=_now_iso)
     last_used_at: str = field(default_factory=_now_iso)

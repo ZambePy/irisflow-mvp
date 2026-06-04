@@ -1,5 +1,7 @@
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useDwell } from '../hooks/useDwell'
+import { api } from '../api/http'
 
 const CSS = `
   .qp-glass { background: rgba(30,32,36,0.6); backdrop-filter: blur(20px); border: 1px solid rgba(255,255,255,0.05); }
@@ -8,7 +10,7 @@ const CSS = `
   .qp-card:hover { box-shadow: 0 0 30px rgba(91,218,198,0.2); }
 `
 
-const CATEGORIES = [
+const CATEGORIES_FALLBACK = [
   { id: 'saude', label: 'Saúde', icon: 'medical_services', count: 12 },
   { id: 'necessidades', label: 'Necessidades', icon: 'restaurant', count: 8 },
   { id: 'social', label: 'Social', icon: 'forum', count: 15 },
@@ -38,6 +40,13 @@ function CategoryCard({ cat, onClick }) {
 
 export default function QuickPhrases() {
   const navigate = useNavigate()
+  const [categories, setCategories] = useState(CATEGORIES_FALLBACK)
+
+  useEffect(() => {
+    api.getCategories().then(data => {
+      if (data) setCategories(data)
+    })
+  }, [])
 
   return (
     <div className="flex flex-col h-full">
@@ -45,7 +54,7 @@ export default function QuickPhrases() {
 
       <div className="flex-1 p-margin-desktop overflow-y-auto">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-gutter-desktop">
-          {CATEGORIES.map((cat) => (
+          {categories.map((cat) => (
             <CategoryCard
               key={cat.id}
               cat={cat}

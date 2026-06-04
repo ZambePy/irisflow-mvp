@@ -3,11 +3,18 @@
 from dataclasses import asdict
 
 from fastapi import APIRouter
+from pydantic import BaseModel
 
 from irisflow.profiles.profile_store import ProfileStore
 
 router = APIRouter()
 store = ProfileStore()
+
+
+class CreateProfileBody(BaseModel):
+    name: str
+    dwell_time_ms: int = 1000
+    tracking_engine: str = "mock"
 
 
 @router.get("/")
@@ -24,16 +31,12 @@ def get_last_used() -> dict | None:
 
 
 @router.post("/")
-def create_profile(
-    name: str,
-    dwell_time_ms: int = 1000,
-    tracking_engine: str = "eyetrax",
-) -> dict:
+def create_profile(body: CreateProfileBody) -> dict:
     """Cria e persiste um novo perfil."""
     p = store.create(
-        name=name,
-        dwell_time_ms=dwell_time_ms,
-        tracking_engine=tracking_engine,
+        name=body.name,
+        dwell_time_ms=body.dwell_time_ms,
+        tracking_engine=body.tracking_engine,
     )
     return asdict(p)
 

@@ -20,9 +20,36 @@ from pydantic import BaseModel
 router = APIRouter()
 _collect_lock = threading.Lock()
 
+# ── Câmera persistente ────────────────────────────────────────────────────────
+# Abre uma vez no primeiro uso e mantém aberta durante toda a sessão do processo.
+# Evita o LED piscando entre pontos e garante que a câmera já esteja quente
+# quando o usuário chega na tela de calibração.
+
+_cap = None          # cv2.VideoCapture singleton
+_cap_lock = threading.Lock()
+
+
+def _get_cap():
+    """Retorna o VideoCapture global, abrindo se necessário."""
+    global _cap
+    with _cap_lock:
+        try:
+            import cv2
+        except ImportError:
+            return None
+        if _cap is None or not _cap.isOpened():
+            _cap = cv2.VideoCapture(0)
+            if not _cap.isOpened():
+                _cap.release()
+                _cap = cv2.VideoCapture(1)
+            if not _cap.isOpened():
+                _cap = None
+        return _cap
+
+
 # ── Constantes (idênticas ao GazeFollower) ────────────────────────────────────
 
-_PREPARE_TIME       = 1.5   # segundos de espera antes de começar a coletar
+_PREPARE_TIME       = 0.0   # prepare gerenciado pelo frontend (1.5 s antes de chamar este endpoint)
 _N_FRAME_NEED       = 45    # frames por ponto de calibração
 _WAIT_TIME          = 0.5   # segundos de espera após completar o ponto
 _BLINK_THRESHOLD    = 10.0  # openness mínima (área Shoelace) para aceitar frame
@@ -144,6 +171,13 @@ class CollectPointBody(BaseModel):
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
+@router.post("/open_camera")
+def open_camera() -> dict:
+    """Pré-aquece a câmera sem iniciar uma sessão de calibração."""
+    cap = _get_cap()
+    return {"ok": cap is not None and cap.isOpened(), "camera": 0 if cap and cap.isOpened() else None}
+
+
 @router.post("/new_session")
 def new_session() -> dict:
     """Reseta o estado completo da sessão de calibração."""
@@ -186,11 +220,8 @@ def collect_point(req: CollectPointBody) -> dict:
             transforms.ToTensor(), transforms.Normalize(**_norm),
         ])
 
-        cap = cv2.VideoCapture(0)
-        if not cap.isOpened():
-            cap.release()
-            cap = cv2.VideoCapture(1)
-        if not cap.isOpened():
+        cap = _get_cap()
+        if cap is None or not cap.isOpened():
             return {"error": "Nenhuma câmera disponível"}
 
         face_mesh = mp.solutions.face_mesh.FaceMesh(
@@ -254,7 +285,6 @@ def collect_point(req: CollectPointBody) -> dict:
             _cal_session["point_ids"].append(req.point_index)
             collected += 1
 
-        cap.release()
         face_mesh.close()
 
         # Fase 3: espera wait_time

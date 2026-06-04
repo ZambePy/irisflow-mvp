@@ -1,7 +1,9 @@
 import { useGazeSocket } from '../context/GazeSocketContext'
+import { useAppStore } from '../store/appStore'
 
 export default function TopBar() {
   const { connected, calibrated } = useGazeSocket()
+  const activeProfile = useAppStore(state => state.activeProfile)
 
   return (
     <header className="h-24 shrink-0 bg-surface-dim/80 backdrop-blur-xl border-b border-white/10 flex justify-between items-center px-margin-desktop w-full shadow-md z-40">
@@ -30,8 +32,8 @@ export default function TopBar() {
       {/* User info + icons */}
       <div className="flex items-center gap-6">
         <div className="text-right">
-          <p className="font-label-lg text-label-lg text-on-surface">Alex Johnson</p>
-          <p className="text-xs text-on-surface-variant">Iris ID: 992-IF</p>
+          <p className="font-label-lg text-label-lg text-on-surface">{activeProfile?.name ?? 'Usuário'}</p>
+          <p className="text-xs text-on-surface-variant">IrisFlow</p>
         </div>
         <div className="flex gap-2">
           <button className="p-3 text-on-surface-variant hover:bg-white/5 rounded-full transition-all">

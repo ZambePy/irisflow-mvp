@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useDwell } from '../hooks/useDwell'
+import { useAppStore } from '../store/appStore'
+import { api } from '../api/http'
 
 const CSS = `
   @keyframes ps-float {
@@ -49,18 +51,30 @@ export default function ProfileSetup() {
   }, [])
 
   async function handleSubmit() {
-    try {
-      await fetch('http://localhost:8765/profiles/', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: name || 'Usuário', dwell_time_ms: dwell, tracking_engine: engine }),
-      })
-    } catch {}
-    navigate('/calibration', { state: { from: 'onboarding', name: name || 'Usuário' } })
+    if (!name.trim()) {
+      document.querySelector('input')?.focus()
+      return
+    }
+    useAppStore.getState().setActiveProfile({
+      name: name.trim(),
+      dwell_time_ms: dwell,
+      tracking_engine: engine,
+      cursor_size: cursor,
+      lang,
+    })
+    api.createProfile({
+      name: name.trim(),
+      dwell_time_ms: dwell,
+      tracking_engine: engine,
+    }).catch(() => {})
+
+    navigate('/calibration', {
+      state: { from: 'onboarding', name: name.trim() }
+    })
   }
 
   return (
-    <div className="min-h-screen relative flex flex-col font-body-md bg-background text-on-surface">
+    <div className="min-h-screen overflow-y-auto relative flex flex-col font-body-md bg-background text-on-surface">
       <style>{CSS}</style>
       <div ref={particleRef} className="fixed inset-0 z-0 overflow-hidden pointer-events-none" />
 
@@ -91,13 +105,13 @@ export default function ProfileSetup() {
         </div>
       </header>
 
-      <main className="flex-grow pt-32 pb-24 relative z-10 flex flex-col items-center justify-center px-margin-mobile md:px-margin-desktop">
+      <main className="pt-32 pb-24 flex flex-col items-center px-margin-mobile md:px-margin-desktop">
         <div className="w-full max-w-[800px] mb-10 text-left">
           <h1 className="font-headline-lg text-headline-lg text-secondary mb-2">Configurar Perfil</h1>
           <p className="font-body-lg text-on-surface-variant">Etapa 1 de 3 — Informações Básicas</p>
         </div>
 
-        <div className="w-full max-w-[800px] ps-glass rounded-2xl p-12 shadow-2xl relative overflow-hidden">
+        <div className="w-full max-w-[800px] ps-glass rounded-2xl p-12 shadow-2xl relative">
           <div className="space-y-12">
             <div className="space-y-4">
               <label className="font-mono text-label-lg text-primary tracking-[0.2em] opacity-80">NOME COMPLETO</label>

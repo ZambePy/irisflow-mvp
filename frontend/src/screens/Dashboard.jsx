@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback, useId } from 'react'
+import { useEffect, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useGazeSocket } from '../context/GazeSocketContext'
 import { useAppStore } from '../store/appStore'
@@ -67,16 +67,6 @@ const CSS = `
   }
 `
 
-function clientToScreen(rect) {
-  const chromeH = window.outerHeight - window.innerHeight
-  return {
-    x: Math.round(rect.left + window.screenX),
-    y: Math.round(rect.top + window.screenY + chromeH),
-    w: Math.round(rect.width),
-    h: Math.round(rect.height),
-  }
-}
-
 function DwellRing({ color = 'currentColor' }) {
   return (
     <div className="if-ring-wrap">
@@ -96,19 +86,8 @@ function GazeBtn({
   magnetic = false,
   children,
 }) {
-  const id = useId()
   const ref = useRef(null)
-  const { registerDwellRegion, unregisterDwellRegion } = useGazeSocket()
   const { onMouseEnter: dwellEnter, onMouseLeave: dwellLeave } = useDwell(onClick ?? (() => {}))
-  const onClickRef = useRef(onClick)
-  useEffect(() => { onClickRef.current = onClick }, [onClick])
-
-  useEffect(() => {
-    const el = ref.current
-    if (!el) return
-    registerDwellRegion(id, clientToScreen(el.getBoundingClientRect()), () => onClickRef.current?.(), null)
-    return () => unregisterDwellRegion(id)
-  }, [id, registerDwellRegion, unregisterDwellRegion])
 
   function handleMouseMove(e) {
     if (!magnetic || !ref.current) return
@@ -177,7 +156,7 @@ function FluidBg() {
 
 export default function Dashboard() {
   const navigate = useNavigate()
-  const { sendMessage, registerDwellRegion, unregisterDwellRegion } = useGazeSocket()
+  const { sendMessage } = useGazeSocket()
   const activeMessage    = useAppStore(state => state.activeMessage)
   const setActiveMessage = useAppStore(state => state.setActiveMessage)
 
@@ -185,18 +164,7 @@ export default function Dashboard() {
     setActiveMessage(useAppStore.getState().activeMessage.slice(0, -1))
   }, [setActiveMessage])
 
-  const bkspId  = useId()
-  const bkspRef = useRef(null)
   const { onMouseEnter: bkspEnter, onMouseLeave: bkspLeave } = useDwell(handleBackspace)
-  const handleBackspaceRef = useRef(handleBackspace)
-  useEffect(() => { handleBackspaceRef.current = handleBackspace }, [handleBackspace])
-
-  useEffect(() => {
-    const el = bkspRef.current
-    if (!el) return
-    registerDwellRegion(bkspId, clientToScreen(el.getBoundingClientRect()), () => handleBackspaceRef.current(), null)
-    return () => unregisterDwellRegion(bkspId)
-  }, [bkspId, registerDwellRegion, unregisterDwellRegion])
 
   return (
     <>
@@ -221,7 +189,6 @@ export default function Dashboard() {
             </div>
 
             <button
-              ref={bkspRef}
               className="if-dwell w-20 h-20 bg-surface-container-highest rounded-2xl hover:bg-surface-bright transition-all flex items-center justify-center"
               onMouseEnter={bkspEnter}
               onMouseLeave={bkspLeave}

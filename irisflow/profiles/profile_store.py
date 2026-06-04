@@ -61,7 +61,7 @@ class ProfileStore:
         self,
         name: str,
         dwell_time_ms: int = 1000,
-        tracking_engine: str = "eyetrax",
+        tracking_engine: str = "mock",
     ) -> Profile:
         profile = Profile(
             name=name,
@@ -100,7 +100,7 @@ class ProfileStore:
             id=d.get("id", str(uuid.uuid4())),
             name=d.get("name", ""),
             dwell_time_ms=d.get("dwell_time_ms", 1000),
-            tracking_engine=d.get("tracking_engine", "eyetrax"),
+            tracking_engine=d.get("tracking_engine", "mock"),
             favorite_phrases=d.get("favorite_phrases", []),
             created_at=d.get("created_at", now),
             last_used_at=d.get("last_used_at", now),

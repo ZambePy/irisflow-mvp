@@ -1,7 +1,8 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useGazeSocket } from '../context/GazeSocketContext'
 import { useDwell } from '../hooks/useDwell'
+import { api } from '../api/http'
 
 const CSS = `
   .pl-dwell { position:absolute; bottom:0; left:0; height:4px; width:0%; background:#5bdac6; transition:width 0.5s linear; }
@@ -62,9 +63,17 @@ export default function PhraseList() {
   const { sendMessage } = useGazeSocket()
   const [favorites, setFavorites] = useState(new Set())
   const [lastSpoken, setLastSpoken] = useState('')
+  const [phrases, setPhrases] = useState(
+    PHRASES_BY_CATEGORY[category] ?? PHRASES_BY_CATEGORY.necessidades
+  )
 
-  const phrases = PHRASES_BY_CATEGORY[category] ?? PHRASES_BY_CATEGORY.necessidades
   const meta = CATEGORY_META[category] ?? CATEGORY_META.necessidades
+
+  useEffect(() => {
+    api.getPhrases(category).then(data => {
+      if (Array.isArray(data)) setPhrases(data)
+    })
+  }, [category])
 
   const speak = (text) => {
     setLastSpoken(text)

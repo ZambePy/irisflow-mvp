@@ -43,7 +43,7 @@ export default function Settings() {
   )
 
   const handleSave = () => {
-    sendMessage('update_dwell', { time: dwellTime })
+    sendMessage('set_dwell_time', { ms: dwellTime })
   }
 
   return (

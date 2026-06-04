@@ -22,17 +22,12 @@ def create_engine(engine_type: str = "mock") -> BaseGazeEngine:
         return MockGazeEngine()
 
     if engine_type == "eyetrax":
-        raise ValueError(
-            "O motor 'eyetrax' foi removido do IrisFlow. "
-            "Use 'mock' para desenvolvimento ou 'irisgazenet' para produção."
-        )
+        logger.warning("[EngineFactory] Motor 'eyetrax' foi removido. Usando 'mock'.")
+        return MockGazeEngine()
 
-    if engine_type == "irisgazenet":
+    if engine_type in ("irisgazenet", "iris-gaze-net"):
         from irisflow.integrations.irisgazenet.adapter import IrisGazeNetAdapter
         logger.info("[EngineFactory] Criando IrisGazeNetAdapter")
         return IrisGazeNetAdapter()
 
-    raise ValueError(
-        f"Engine desconhecido: '{engine_type}'. "
-        f"Opções válidas: 'mock', 'irisgazenet'"
-    )
+    raise ValueError(f"[EngineFactory] Engine desconhecido: '{engine_type}'")
