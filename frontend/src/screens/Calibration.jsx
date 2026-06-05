@@ -70,14 +70,15 @@ export default function Calibration() {
   const [stepIdx,        setStepIdx]        = useState(0)   // 0-based index into shuffled
   const [fitResult,      setFitResult]      = useState(null)
 
-  const targetRef      = useRef(null)
-  const circleRef      = useRef(null)
-  const rafRef         = useRef(null)
-  const startRef       = useRef(null)
-  const activeRef      = useRef(true)
-  const collectingRef  = useRef(false)  // true enquanto o RAF de progresso está rodando
-  const advancingRef   = useRef(false)  // guard contra double-advance (click + RAF simultâneos)
-  const startingRef    = useRef(false)  // guard contra double-call de startSession (dwell + click)
+  const targetRef         = useRef(null)
+  const circleRef         = useRef(null)
+  const rafRef            = useRef(null)
+  const startRef          = useRef(null)
+  const activeRef         = useRef(true)
+  const collectingRef     = useRef(false)  // true enquanto o RAF de progresso está rodando
+  const advancingRef      = useRef(false)  // guard contra double-advance (click + RAF simultâneos)
+  const startingRef       = useRef(false)  // guard contra double-call de startSession (dwell + click)
+  const collectedPtsRef   = useRef(new Set()) // point_indexes já enviados nesta sessão
 
   useEffect(() => {
     activeRef.current = true
@@ -87,6 +88,11 @@ export default function Calibration() {
     }
   }, [])
 
+  // Libera o guard de sessão quando a calibração termina — permite RECALIBRAR
+  useEffect(() => {
+    if (phase === 'result') startingRef.current = false
+  }, [phase])
+
   // ── Funções de calibração ─────────────────────────────────────────────────
 
   const startSession = useCallback(async () => {
@@ -94,6 +100,7 @@ export default function Calibration() {
     startingRef.current = true
     collectingRef.current = false
     advancingRef.current  = false
+    collectedPtsRef.current.clear()
 
     try {
       await fetch('http://localhost:8765/calibration/new_session', { method: 'POST' })
@@ -103,7 +110,7 @@ export default function Calibration() {
     setShuffled(pts)
     setStepIdx(0)
     setFitResult(null)
-    startingRef.current = false
+    // startingRef fica true até a fase 'result' — impede dwell + click dispararem duas sessões
     setPhase('calibrating')
   }, [])
 
@@ -133,10 +140,24 @@ export default function Calibration() {
     if (phase !== 'calibrating' || shuffled.length === 0) return
     if (collectingRef.current) return
 
-    // Aguarda 200 ms (tempo da animação de entrada) antes de começar a coletar
+    // Aguarda 600 ms (animação de entrada) e dispara collect_point imediatamente —
+    // o backend captura enquanto o usuário ainda olha para o ponto correto.
     const delay = setTimeout(() => {
       collectingRef.current = true
       startRef.current = performance.now()
+
+      // Guard de deduplicação: nunca envia dois collect_point para o mesmo ponto
+      if (collectedPtsRef.current.has(stepIdx)) return
+      collectedPtsRef.current.add(stepIdx)
+
+      const pt = shuffled[stepIdx]
+      const px = Math.round(pt.x * window.innerWidth)
+      const py = Math.round(pt.y * window.innerHeight)
+      fetch('http://localhost:8765/calibration/collect_point', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ point_index: stepIdx, expected_x: px, expected_y: py }),
+      }).catch(() => {})
 
       const tick = (now) => {
         if (!activeRef.current) return
@@ -170,16 +191,6 @@ export default function Calibration() {
     if (!el) return
 
     const currentStep = stepIdx   // capture before state update
-
-    // Coleta o ponto no backend
-    const pt = shuffled[currentStep]
-    const px = Math.round(pt.x * window.innerWidth)
-    const py = Math.round(pt.y * window.innerHeight)
-    fetch('http://localhost:8765/calibration/collect_point', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ point_index: currentStep, expected_x: px, expected_y: py }),
-    }).catch(() => {})
 
     gsap.to(el, {
       scale: 0,
@@ -227,6 +238,12 @@ export default function Calibration() {
       })
   }, [phase, setCalibrated])
 
+  // ── Derived values (must be before useCallback/useDwell that reference them) ──
+
+  const accuracy  = fitResult ? Math.round((fitResult.accuracy ?? 0.94) * 100) : 94
+  const completed = phase === 'calibrating' ? stepIdx : phase === 'fitting' ? GRID_POINTS.length : 0
+  const topBarPct = (completed / GRID_POINTS.length) * 100
+
   // ── Dwell hooks para intro/result ─────────────────────────────────────────
 
   const handleConcluir = useCallback(() => {
@@ -246,10 +263,6 @@ export default function Calibration() {
 
   const { onMouseEnter: iniciarEnter, onMouseLeave: iniciarLeave } = useDwell(startSession)
   const { onMouseEnter: concluirEnter, onMouseLeave: concluirLeave } = useDwell(handleConcluir)
-
-  const accuracy = fitResult ? Math.round((fitResult.accuracy ?? 0.94) * 100) : 94
-  const completed = phase === 'calibrating' ? stepIdx : phase === 'fitting' ? GRID_POINTS.length : 0
-  const topBarPct = (completed / GRID_POINTS.length) * 100
 
   // ── Render ────────────────────────────────────────────────────────────────
 

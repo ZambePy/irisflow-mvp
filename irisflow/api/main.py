@@ -101,6 +101,10 @@ async def health() -> dict:
 async def websocket_endpoint(websocket: WebSocket) -> None:
     """Endpoint WebSocket principal — conecta frontend ao backend IrisFlow."""
     await manager.connect(websocket)
+    # Abre câmera em background na primeira conexão WS para estar pronta na calibração
+    import threading
+    from irisflow.api.routes.calibration import _get_cap
+    threading.Thread(target=_get_cap, daemon=True, name="cam-warmup").start()
     try:
         while True:
             data = await websocket.receive_text()

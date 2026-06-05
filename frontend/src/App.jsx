@@ -1,6 +1,7 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { useState, useEffect } from 'react'
 import { GazeSocketProvider } from './context/GazeSocketContext'
+import { useAppStore } from './store/appStore'
 import TopBar from './components/TopBar'
 import SideNav from './components/SideNav'
 import GazeCursor from './components/GazeCursor'
@@ -42,6 +43,11 @@ function AppShell() {
 function AppBootstrap() {
   const [ready, setReady] = useState(false)
   const [hasProfile, setHasProfile] = useState(false)
+  const activeProfile = useAppStore(state => state.activeProfile)
+  // location.state?.from === 'onboarding' is set by ProfileSetup on navigate() — React Router
+  // delivers this synchronously in the same render pass, avoiding Zustand timing issues.
+  const location = useLocation()
+  const comingFromOnboarding = location.state?.from === 'onboarding'
 
   useEffect(() => {
     const controller = new AbortController()
@@ -79,7 +85,7 @@ function AppBootstrap() {
 
       {/* App principal — com shell */}
       <Route path="/*" element={
-        hasProfile
+        (hasProfile || !!activeProfile || comingFromOnboarding)
           ? <AppShell />
           : <Navigate to="/welcome" replace />
       } />

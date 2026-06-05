@@ -363,11 +363,14 @@ def fit_calibration() -> dict:
     _cal_session["metrics"] = metrics
     _cal_session["status"]  = "calibrated"
 
+    accuracy = round(max(0.0, 1.0 - metrics["mae_total"] / 200.0), 3)
+
     return {
         "mae_x":     round(metrics["mae_x"], 1),
         "mae_y":     round(metrics["mae_y"], 1),
         "mae_total": round(metrics["mae_total"], 1),
         "n_samples": metrics["n_samples"],
+        "accuracy":  accuracy,
         "status":    "calibrated",
     }
 
