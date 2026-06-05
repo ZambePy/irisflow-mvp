@@ -34,7 +34,14 @@ app = FastAPI(title="IrisFlow API", version="0.1.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:5174","http://localhost:*", "http://localhost:5175", "file://"],
+    allow_origins=[
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:4173",
+        "http://127.0.0.1:4173",
+        "file://",
+    ],
+    allow_origin_regex=r"^http://(localhost|127\.0\.0\.1):\d+$",
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -160,12 +167,9 @@ async def _start_tracking_engine(engine_name: str) -> None:
     global tracking, dwell
     loop = asyncio.get_running_loop()
 
-    if tracking and tracking.is_running():
-        tracking.stop()
-
     gaze_engine = create_engine(engine_name)
-    tracking = TrackingService(gaze_engine)
-    dwell = DwellController(
+    next_tracking = TrackingService(gaze_engine)
+    next_dwell = DwellController(
         dwell_time_ms=config.dwell_time_ms,
         radius_px=config.dwell_radius_px,
     )
@@ -191,7 +195,7 @@ async def _start_tracking_engine(engine_name: str) -> None:
     # DirectConnection: slot chamado diretamente na thread que emitiu o sinal.
     # Necessário porque o Qt event loop não está rodando (sem exec()), então
     # QueuedConnection (padrão cross-thread) nunca processaria os eventos.
-    dwell.dwell_progress.connect(
+    next_dwell.dwell_progress.connect(
         lambda rid, p: asyncio.run_coroutine_threadsafe(
             manager.broadcast({
                 "type": "dwell_progress",
@@ -203,7 +207,7 @@ async def _start_tracking_engine(engine_name: str) -> None:
         Qt.ConnectionType.DirectConnection,
     )
 
-    dwell.dwell_completed.connect(
+    next_dwell.dwell_completed.connect(
         lambda rid: asyncio.run_coroutine_threadsafe(
             manager.broadcast({
                 "type": "dwell_completed",
@@ -214,7 +218,7 @@ async def _start_tracking_engine(engine_name: str) -> None:
         Qt.ConnectionType.DirectConnection,
     )
 
-    dwell.dwell_cancelled.connect(
+    next_dwell.dwell_cancelled.connect(
         lambda rid: asyncio.run_coroutine_threadsafe(
             manager.broadcast({
                 "type": "dwell_cancelled",
@@ -225,10 +229,18 @@ async def _start_tracking_engine(engine_name: str) -> None:
         Qt.ConnectionType.DirectConnection,
     )
 
-    tracking.add_listener(on_gaze)
-    tracking.add_listener(dwell.on_gaze)
-    tracking.start()
-    logger.info(f"[API] Tracking iniciado: {engine_name}")
+    next_tracking.add_listener(on_gaze)
+    next_tracking.add_listener(next_dwell.on_gaze)
+    next_tracking.start()
+
+    previous_tracking = tracking
+    tracking = next_tracking
+    dwell = next_dwell
+
+    if previous_tracking and previous_tracking.is_running():
+        previous_tracking.stop()
+
+    logger.info(f"[API] Tracking iniciado: {tracking.engine_name}")
 
 
 async def start_tracking(websocket: WebSocket, engine_name: str) -> None:

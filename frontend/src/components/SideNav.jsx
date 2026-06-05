@@ -11,7 +11,7 @@ const links = [
 
 export default function SideNav() {
   const navigate = useNavigate()
-  const { sendMessage } = useGazeSocket()
+  const { connected, sendMessage } = useGazeSocket()
   const handleEmergency = () => sendMessage('emergency')
   const { onMouseEnter, onMouseLeave } = useDwell(handleEmergency)
 
@@ -38,6 +38,8 @@ export default function SideNav() {
             key={to}
             to={to}
             end={end}
+            data-dwell-target={label === 'Favorites' || label === 'Settings' ? true : undefined}
+            data-dwell-label={label}
             className={({ isActive }) =>
               isActive
                 ? 'flex items-center text-secondary border-l-4 border-secondary bg-secondary/10 px-8 py-6 transition-all duration-300'
@@ -53,8 +55,10 @@ export default function SideNav() {
       {/* Bottom: Emergency + Help */}
       <div className="px-8 mt-auto">
         <button
+          data-dwell-target
+          data-dwell-label="Emergency"
           className="pulse-emergency w-full bg-error-container text-error px-6 py-5 rounded-xl font-bold hover:scale-95 transition-transform flex items-center justify-center gap-3"
-          onMouseEnter={onMouseEnter}
+          onMouseEnter={connected ? undefined : onMouseEnter}
           onMouseLeave={onMouseLeave}
           onClick={handleEmergency}
         >
@@ -63,6 +67,8 @@ export default function SideNav() {
         </button>
 
         <button
+          data-dwell-target
+          data-dwell-label="Calibration"
           className="mt-6 flex items-center text-on-surface-variant hover:text-primary transition-colors w-full py-4"
           onClick={() => navigate('/calibration')}
         >

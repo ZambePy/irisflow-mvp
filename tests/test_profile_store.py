@@ -70,6 +70,24 @@ def test_atualizar_perfil(tmp_profiles_dir):
     assert store.get(perfil.id).dwell_time_ms == 1500
 
 
+def test_marcar_perfil_como_calibrado(tmp_profiles_dir):
+    store = ProfileStore(path=tmp_profiles_dir / "profiles.json")
+    perfil = store.create(name="Cal", dwell_time_ms=1000, tracking_engine="iris-gaze-net")
+
+    store.mark_calibrated(
+        perfil.id,
+        "models/irisflow_base_model.pkl",
+        {"accuracy": 0.91, "mae_total": 18.2},
+    )
+
+    store2 = ProfileStore(path=tmp_profiles_dir / "profiles.json")
+    persisted = store2.get(perfil.id)
+    assert persisted.is_calibrated is True
+    assert persisted.calibration_model_path == "models/irisflow_base_model.pkl"
+    assert persisted.calibration_metrics["accuracy"] == 0.91
+    assert persisted.calibrated_at is not None
+
+
 def test_perfil_sem_last_used_retorna_none(tmp_profiles_dir):
     store = ProfileStore(path=tmp_profiles_dir / "profiles.json")
     assert store.get_last_used() is None

@@ -50,11 +50,21 @@ IrisFlow UI
 
 ## Como rodar
 
+### Demo local (Windows)
+
+Depois de criar a `.venv`, instalar o backend e rodar `npm install` em `frontend/`, inicie o MVP com:
+
+```bat
+start_demo.bat
+```
+
+O script abre duas janelas: backend em `http://127.0.0.1:8765` e frontend em `http://localhost:5173`.
+
 ### Desenvolvimento (dois terminais)
 
 Terminal 1 — Backend Python:
 ```bash
-pip install fastapi uvicorn websockets
+python -m pip install -e .
 python -m irisflow.api.main
 # Sobe em http://127.0.0.1:8765
 ```

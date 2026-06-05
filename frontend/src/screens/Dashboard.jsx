@@ -85,8 +85,10 @@ function GazeBtn({
   dwellColor = 'currentColor',
   magnetic = false,
   children,
+  ...props
 }) {
   const ref = useRef(null)
+  const { connected } = useGazeSocket()
   const { onMouseEnter: dwellEnter, onMouseLeave: dwellLeave } = useDwell(onClick ?? (() => {}))
 
   function handleMouseMove(e) {
@@ -107,10 +109,11 @@ function GazeBtn({
       ref={ref}
       className={`if-dwell group ${glowClass} ${className}`}
       style={style}
-      onMouseEnter={dwellEnter}
+      onMouseEnter={connected ? undefined : dwellEnter}
       onMouseLeave={handleMouseLeave}
       onMouseMove={magnetic ? handleMouseMove : undefined}
       onClick={onClick}
+      {...props}
     >
       {children}
       <DwellRing color={dwellColor} />
@@ -206,6 +209,8 @@ export default function Dashboard() {
           {/* SIM + NÃO */}
           <div className="col-span-8 grid grid-cols-2 gap-gutter-desktop">
             <GazeBtn
+              data-dwell-target
+              data-dwell-label="Sim"
               onClick={() => sendMessage('speak', { text: 'SIM' })}
               glowClass="if-glow-blue"
               className="h-full bg-primary-container text-on-primary-container rounded-[2.5rem] flex flex-col items-center justify-center gap-6 border border-primary/20 transition-all duration-300"
@@ -222,6 +227,8 @@ export default function Dashboard() {
             </GazeBtn>
 
             <GazeBtn
+              data-dwell-target
+              data-dwell-label="Nao"
               onClick={() => sendMessage('speak', { text: 'NÃO' })}
               glowClass="if-glow-red"
               className="h-full bg-error-container text-on-error-container rounded-[2.5rem] flex flex-col items-center justify-center gap-6 border border-error/20 transition-all duration-300"
@@ -241,6 +248,8 @@ export default function Dashboard() {
           {/* Teclado + Frases */}
           <div className="col-span-4 flex flex-col gap-gutter-desktop">
             <GazeBtn
+              data-dwell-target
+              data-dwell-label="Keyboard"
               onClick={() => navigate('/keyboard')}
               glowClass="if-glow-teal"
               className="flex-grow glass-panel rounded-3xl flex flex-col items-center justify-center gap-4 transition-all"
@@ -254,6 +263,8 @@ export default function Dashboard() {
             </GazeBtn>
 
             <GazeBtn
+              data-dwell-target
+              data-dwell-label="Quick Phrases"
               onClick={() => navigate('/phrases')}
               glowClass="if-glow-teal"
               className="flex-grow glass-panel rounded-3xl flex flex-col items-center justify-center gap-4 transition-all"
@@ -274,6 +285,8 @@ export default function Dashboard() {
           {/* Calibrar */}
           <div className="col-span-3">
             <GazeBtn
+              data-dwell-target
+              data-dwell-label="Calibration"
               onClick={() => navigate('/calibration')}
               className="w-full bg-secondary/5 border border-secondary/20 text-secondary p-8 rounded-3xl flex items-center justify-center gap-4 hover:bg-secondary/10 transition-all"
               dwellColor="#5bdac6"

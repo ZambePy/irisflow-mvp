@@ -14,6 +14,7 @@ Crop logic segue exatamente o MediaPipeFaceAlignment do GazeFollower:
 from __future__ import annotations
 
 import math
+import sys
 import threading
 import time
 
@@ -32,6 +33,20 @@ _RIGHT_OPEN_IDX = [362, 388, 384, 385, 386, 387, 388, 466, 263,
                    249, 380, 373, 374, 380, 381, 382, 362]
 
 _BLINK_THRESHOLD = 10.0
+
+
+def _import_mediapipe():
+    """Import MediaPipe while ignoring optional TensorFlow doc dependencies."""
+    tensorflow_module = sys.modules.get("tensorflow")
+    sys.modules["tensorflow"] = None
+    try:
+        import mediapipe as mp
+        return mp
+    finally:
+        if tensorflow_module is None:
+            sys.modules.pop("tensorflow", None)
+        else:
+            sys.modules["tensorflow"] = tensorflow_module
 
 
 def _shoelace(xs: np.ndarray, ys: np.ndarray) -> float:
@@ -241,7 +256,7 @@ class IrisGazeNetAdapter(BaseGazeEngine):
     def _capture_loop(self) -> None:
         import cv2
         import torch
-        import mediapipe as mp
+        mp = _import_mediapipe()
         from torchvision import transforms
 
         cap = cv2.VideoCapture(self._config.camera_index)

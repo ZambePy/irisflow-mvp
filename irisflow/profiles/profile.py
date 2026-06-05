@@ -17,5 +17,9 @@ class Profile:
     dwell_time_ms: int = 1000
     tracking_engine: str = "mock"
     favorite_phrases: list = field(default_factory=list)
+    is_calibrated: bool = False
+    calibration_model_path: str | None = None
+    calibration_metrics: dict | None = None
+    calibrated_at: str | None = None
     created_at: str = field(default_factory=_now_iso)
     last_used_at: str = field(default_factory=_now_iso)

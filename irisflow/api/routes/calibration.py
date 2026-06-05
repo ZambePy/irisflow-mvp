@@ -16,6 +16,7 @@ from pathlib import Path
 import numpy as np
 from fastapi import APIRouter
 from pydantic import BaseModel
+from irisflow.profiles.profile_store import ProfileStore
 
 router = APIRouter()
 _collect_lock = threading.Lock()
@@ -45,6 +46,20 @@ def _get_cap():
             if not _cap.isOpened():
                 _cap = None
         return _cap
+
+
+def _import_mediapipe():
+    """Import MediaPipe while ignoring optional TensorFlow doc dependencies."""
+    tensorflow_module = sys.modules.get("tensorflow")
+    sys.modules["tensorflow"] = None
+    try:
+        import mediapipe as mp
+        return mp
+    finally:
+        if tensorflow_module is None:
+            sys.modules.pop("tensorflow", None)
+        else:
+            sys.modules["tensorflow"] = tensorflow_module
 
 
 # ── Constantes (idênticas ao GazeFollower) ────────────────────────────────────
@@ -169,6 +184,12 @@ class CollectPointBody(BaseModel):
     expected_y: float
 
 
+class FitCalibrationBody(BaseModel):
+    profile_id: str | None = None
+    screen_w: int | None = None
+    screen_h: int | None = None
+
+
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
 @router.post("/open_camera")
@@ -199,7 +220,7 @@ def collect_point(req: CollectPointBody) -> dict:
 
     try:
         import cv2
-        import mediapipe as mp
+        mp = _import_mediapipe()
         import torch
         from torchvision import transforms
     except ImportError as exc:
@@ -304,7 +325,7 @@ def collect_point(req: CollectPointBody) -> dict:
 
 
 @router.post("/fit")
-def fit_calibration() -> dict:
+def fit_calibration(body: FitCalibrationBody | None = None) -> dict:
     """
     Treina SVR com os frames coletados, descartando os 3 últimos de cada ponto.
     """
@@ -349,27 +370,53 @@ def fit_calibration() -> dict:
 
     from irisflow.integrations.irisgazenet.config import irisgazenet_config
 
-    estimator = IrisGazeEstimator()
-    metrics = estimator.calibrate(
-        face_images, left_images, right_images, rects, targets,
-        screen_w=irisgazenet_config.screen_w,
-        screen_h=irisgazenet_config.screen_h,
-    )
+    screen_w = body.screen_w if body and body.screen_w else irisgazenet_config.screen_w
+    screen_h = body.screen_h if body and body.screen_h else irisgazenet_config.screen_h
 
-    model_path = irisgazenet_config.model_path
-    Path(model_path).parent.mkdir(parents=True, exist_ok=True)
-    estimator.save(model_path)
+    try:
+        estimator = IrisGazeEstimator()
+        metrics = estimator.calibrate(
+            face_images, left_images, right_images, rects, targets,
+            screen_w=screen_w,
+            screen_h=screen_h,
+        )
 
-    _cal_session["metrics"] = metrics
+        model_path = irisgazenet_config.model_path
+        Path(model_path).parent.mkdir(parents=True, exist_ok=True)
+        estimator.save(model_path)
+    except Exception as exc:
+        return {"error": f"Erro ao treinar/salvar calibração: {exc}"}
+
+    _cal_session["metrics"] = {
+        **metrics,
+        "model_path": str(model_path),
+        "screen_w": screen_w,
+        "screen_h": screen_h,
+    }
     _cal_session["status"]  = "calibrated"
 
     accuracy = round(max(0.0, 1.0 - metrics["mae_total"] / 200.0), 3)
+
+    if body and body.profile_id:
+        ProfileStore().mark_calibrated(
+            profile_id=body.profile_id,
+            model_path=str(model_path),
+            metrics={
+                **metrics,
+                "accuracy": accuracy,
+                "screen_w": screen_w,
+                "screen_h": screen_h,
+            },
+        )
 
     return {
         "mae_x":     round(metrics["mae_x"], 1),
         "mae_y":     round(metrics["mae_y"], 1),
         "mae_total": round(metrics["mae_total"], 1),
         "n_samples": metrics["n_samples"],
+        "model_path": str(model_path),
+        "screen_w": screen_w,
+        "screen_h": screen_h,
         "accuracy":  accuracy,
         "status":    "calibrated",
     }
@@ -379,6 +426,24 @@ def fit_calibration() -> dict:
 def calibration_result() -> dict:
     """Retorna métricas da última calibração executada via /fit."""
     if _cal_session["metrics"] is None:
+        profile = ProfileStore().get_last_used()
+        if profile and profile.is_calibrated and profile.calibration_model_path:
+            model_path = Path(profile.calibration_model_path)
+            if model_path.exists():
+                metrics = profile.calibration_metrics or {}
+                return {
+                    "status": "calibrated",
+                    "accuracy": metrics.get("accuracy"),
+                    "mae_x": round(metrics["mae_x"], 1) if "mae_x" in metrics else None,
+                    "mae_y": round(metrics["mae_y"], 1) if "mae_y" in metrics else None,
+                    "mae_total": round(metrics["mae_total"], 1) if "mae_total" in metrics else None,
+                    "n_samples": metrics.get("n_samples"),
+                    "model_path": str(model_path),
+                    "screen_w": metrics.get("screen_w"),
+                    "screen_h": metrics.get("screen_h"),
+                    "calibrated_at": profile.calibrated_at,
+                    "profile_id": profile.id,
+                }
         return {"status": "not_calibrated"}
 
     m = _cal_session["metrics"]
@@ -390,6 +455,9 @@ def calibration_result() -> dict:
         "mae_y":     round(m["mae_y"], 1),
         "mae_total": round(m["mae_total"], 1),
         "n_samples": m["n_samples"],
+        "model_path": m.get("model_path"),
+        "screen_w": m.get("screen_w"),
+        "screen_h": m.get("screen_h"),
         "n_support_vectors_x": m.get("n_support_vectors_x"),
         "n_support_vectors_y": m.get("n_support_vectors_y"),
     }

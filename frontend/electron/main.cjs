@@ -1,6 +1,7 @@
 const { app, BrowserWindow, Menu } = require('electron')
 const path = require('path')
 const { spawn } = require('child_process')
+const fs = require('fs')
 
 let mainWindow = null
 let backend = null
@@ -30,8 +31,14 @@ function createWindow() {
 }
 
 function startBackend() {
-  backend = spawn('python', ['-m', 'irisflow.api.main'], {
-    cwd: path.join(__dirname, '../../'),
+  const repoRoot = path.join(__dirname, '../../')
+  const venvPython = process.platform === 'win32'
+    ? path.join(repoRoot, '.venv', 'Scripts', 'python.exe')
+    : path.join(repoRoot, '.venv', 'bin', 'python')
+  const pythonCmd = process.env.IRISFLOW_PYTHON || (fs.existsSync(venvPython) ? venvPython : 'python')
+
+  backend = spawn(pythonCmd, ['-m', 'irisflow.api.main'], {
+    cwd: repoRoot,
     env: { ...process.env },
   })
 

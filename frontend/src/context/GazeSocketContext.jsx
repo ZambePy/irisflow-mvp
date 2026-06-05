@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useRef, useState, useCallback } from 'react'
 import { useAppStore } from '../store/appStore'
+import { WS_URL } from '../config/api'
 
 const GazeSocketContext = createContext(null)
 
@@ -25,7 +26,7 @@ export function GazeSocketProvider({ children }) {
     let destroyed = false
 
     const connect = () => {
-      const ws = new WebSocket('ws://localhost:8765/ws')
+      const ws = new WebSocket(WS_URL)
       wsRef.current = ws
 
       ws.onopen = () => {

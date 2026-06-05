@@ -1,8 +1,8 @@
-const BASE = 'http://localhost:8765'
+import { API_BASE_URL } from '../config/api'
 
 async function request(path, options = {}) {
   try {
-    const res = await fetch(`${BASE}${path}`, {
+    const res = await fetch(`${API_BASE_URL}${path}`, {
       headers: { 'Content-Type': 'application/json' },
       ...options,
     })

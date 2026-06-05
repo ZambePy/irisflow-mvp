@@ -55,18 +55,29 @@ export default function ProfileSetup() {
       document.querySelector('input')?.focus()
       return
     }
-    useAppStore.getState().setActiveProfile({
+    const localProfile = {
       name: name.trim(),
       dwell_time_ms: dwell,
       tracking_engine: engine,
       cursor_size: cursor,
       lang,
-    })
-    api.createProfile({
+    }
+    useAppStore.getState().setActiveProfile(localProfile)
+    useAppStore.getState().setDwellTime(dwell)
+    useAppStore.getState().setTrackingEngine(engine)
+
+    const savedProfile = await api.createProfile({
       name: name.trim(),
       dwell_time_ms: dwell,
       tracking_engine: engine,
-    }).catch(() => {})
+    })
+    if (savedProfile) {
+      useAppStore.getState().setActiveProfile({
+        ...savedProfile,
+        cursor_size: cursor,
+        lang,
+      })
+    }
 
     navigate('/calibration', {
       state: { from: 'onboarding', name: name.trim() }

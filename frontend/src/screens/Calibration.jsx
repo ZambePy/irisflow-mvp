@@ -3,6 +3,8 @@ import { useNavigate, useLocation } from 'react-router-dom'
 import { gsap } from 'gsap'
 import { useDwell } from '../hooks/useDwell'
 import { useAppStore } from '../store/appStore'
+import { useGazeSocket } from '../context/GazeSocketContext'
+import { API_BASE_URL } from '../config/api'
 
 // ── Constantes ────────────────────────────────────────────────────────────────
 
@@ -63,12 +65,17 @@ const TIPS = [
 export default function Calibration() {
   const navigate    = useNavigate()
   const location    = useLocation()
+  const { sendMessage } = useGazeSocket()
   const setCalibrated = useAppStore((s) => s.setCalibrated)
+  const setActiveProfile = useAppStore((s) => s.setActiveProfile)
+  const activeProfile = useAppStore((s) => s.activeProfile)
+  const trackingEngine = useAppStore((s) => s.trackingEngine)
 
   const [phase,          setPhase]          = useState('intro')
   const [shuffled,       setShuffled]       = useState([])
   const [stepIdx,        setStepIdx]        = useState(0)   // 0-based index into shuffled
   const [fitResult,      setFitResult]      = useState(null)
+  const [calibrationError, setCalibrationError] = useState('')
 
   const targetRef         = useRef(null)
   const circleRef         = useRef(null)
@@ -79,6 +86,33 @@ export default function Calibration() {
   const advancingRef      = useRef(false)  // guard contra double-advance (click + RAF simultâneos)
   const startingRef       = useRef(false)  // guard contra double-call de startSession (dwell + click)
   const collectedPtsRef   = useRef(new Set()) // point_indexes já enviados nesta sessão
+
+  const failCalibration = useCallback((message) => {
+    cancelAnimationFrame(rafRef.current)
+    collectingRef.current = false
+    advancingRef.current = false
+    startingRef.current = false
+    setCalibrated(false)
+    setCalibrationError(message)
+    setPhase('error')
+  }, [setCalibrated])
+
+  const postJson = useCallback(async (url, options = {}) => {
+    const res = await fetch(url, options)
+    let data = null
+    try {
+      data = await res.json()
+    } catch {
+      data = null
+    }
+    if (!res.ok) {
+      throw new Error(data?.error || `HTTP ${res.status}`)
+    }
+    if (data?.error) {
+      throw new Error(data.error)
+    }
+    return data
+  }, [])
 
   useEffect(() => {
     activeRef.current = true
@@ -101,10 +135,15 @@ export default function Calibration() {
     collectingRef.current = false
     advancingRef.current  = false
     collectedPtsRef.current.clear()
+    setCalibrated(false)
+    setCalibrationError('')
 
     try {
-      await fetch('http://localhost:8765/calibration/new_session', { method: 'POST' })
-    } catch { /* offline */ }
+      await postJson(`${API_BASE_URL}/calibration/new_session`, { method: 'POST' })
+    } catch (e) {
+      failCalibration(`Não foi possível iniciar a calibração: ${e.message}`)
+      return
+    }
 
     const pts = fisherYates(GRID_POINTS)
     setShuffled(pts)
@@ -112,7 +151,7 @@ export default function Calibration() {
     setFitResult(null)
     // startingRef fica true até a fase 'result' — impede dwell + click dispararem duas sessões
     setPhase('calibrating')
-  }, [])
+  }, [failCalibration, postJson, setCalibrated])
 
   // Posiciona e anima a entrada do ponto quando stepIdx muda
   useEffect(() => {
@@ -142,7 +181,7 @@ export default function Calibration() {
 
     // Aguarda 600 ms (animação de entrada) e dispara collect_point imediatamente —
     // o backend captura enquanto o usuário ainda olha para o ponto correto.
-    const delay = setTimeout(() => {
+    const delay = setTimeout(async () => {
       collectingRef.current = true
       startRef.current = performance.now()
 
@@ -153,11 +192,6 @@ export default function Calibration() {
       const pt = shuffled[stepIdx]
       const px = Math.round(pt.x * window.innerWidth)
       const py = Math.round(pt.y * window.innerHeight)
-      fetch('http://localhost:8765/calibration/collect_point', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ point_index: stepIdx, expected_x: px, expected_y: py }),
-      }).catch(() => {})
 
       const tick = (now) => {
         if (!activeRef.current) return
@@ -166,13 +200,25 @@ export default function Calibration() {
         if (circleRef.current)
           circleRef.current.style.strokeDashoffset =
             CIRCUMFERENCE - (pct / 100) * CIRCUMFERENCE
-        if (pct < 100) {
-          rafRef.current = requestAnimationFrame(tick)
-        } else {
-          advancePoint()
-        }
+        if (pct < 100) rafRef.current = requestAnimationFrame(tick)
       }
       rafRef.current = requestAnimationFrame(tick)
+
+      try {
+        const data = await postJson(`${API_BASE_URL}/calibration/collect_point`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ point_index: stepIdx, expected_x: px, expected_y: py }),
+        })
+        if (!data?.ready) {
+          throw new Error(`Ponto ${stepIdx + 1}: ${data?.collected ?? 0}/${data?.needed ?? '?'} frames coletados`)
+        }
+        if (!activeRef.current) return
+        advancePoint()
+      } catch (e) {
+        if (!activeRef.current) return
+        failCalibration(e.message || 'Falha ao coletar ponto de calibração')
+      }
     }, 600)
 
     return () => {
@@ -180,7 +226,7 @@ export default function Calibration() {
       cancelAnimationFrame(rafRef.current)
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stepIdx, phase, shuffled])
+  }, [stepIdx, phase, shuffled, postJson, failCalibration])
 
   const advancePoint = useCallback(() => {
     if (!activeRef.current) return
@@ -212,31 +258,54 @@ export default function Calibration() {
   }, [stepIdx, shuffled])
 
   // Clique para avançar (teste com mouse)
-  const handlePointClick = useCallback(() => {
-    advancePoint()
-  }, [advancePoint])
+  const handlePointClick = useCallback(() => {}, [])
 
   // Fase de fitting
   useEffect(() => {
     if (phase !== 'fitting') return
     const minDelay = new Promise((r) => setTimeout(r, 1000))
-    fetch('http://localhost:8765/calibration/fit', { method: 'POST' })
-      .then((r) => r.json())
-      .then(async (data) => {
+
+    async function fit() {
+      try {
+        const data = await postJson(`${API_BASE_URL}/calibration/fit`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            profile_id: activeProfile?.id,
+            screen_w: window.innerWidth,
+            screen_h: window.innerHeight,
+          }),
+        })
         await minDelay
         if (!activeRef.current) return
+
+        if (data.status !== 'calibrated') {
+          throw new Error('Backend não retornou status calibrated')
+        }
+
+        const engine = activeProfile?.tracking_engine || trackingEngine || 'mock'
         setCalibrated(true)
-        setFitResult(data.status === 'calibrated' ? data : { accuracy: 0.94 })
+        setFitResult(data)
+        if (activeProfile) {
+          setActiveProfile({
+            ...activeProfile,
+            is_calibrated: true,
+            calibration_model_path: data.model_path,
+            calibration_metrics: data,
+            calibrated_at: new Date().toISOString(),
+          })
+        }
+        sendMessage('start_tracking', { engine })
         setPhase('result')
-      })
-      .catch(async () => {
+      } catch (e) {
         await minDelay
         if (!activeRef.current) return
-        setCalibrated(true)
-        setFitResult({ accuracy: 0.94 })
-        setPhase('result')
-      })
-  }, [phase, setCalibrated])
+        failCalibration(e.message || 'Falha ao finalizar calibração')
+      }
+    }
+
+    fit()
+  }, [phase, activeProfile, trackingEngine, sendMessage, postJson, setActiveProfile, setCalibrated, failCalibration])
 
   // ── Derived values (must be before useCallback/useDwell that reference them) ──
 
@@ -429,6 +498,34 @@ export default function Calibration() {
       )}
 
       {/* ═══ PHASE: FITTING ═════════════════════════════════════════════════ */}
+      {phase === 'error' && (
+        <div className="min-h-full flex flex-col bg-background text-on-surface">
+          <div className="flex-1 flex flex-col items-center justify-center gap-8 p-8 text-center">
+            <div className="w-20 h-20 rounded-full bg-error-container flex items-center justify-center">
+              <span className="material-symbols-outlined text-error text-5xl">error</span>
+            </div>
+            <div className="max-w-2xl">
+              <h2 className="font-headline-lg text-headline-lg text-error mb-4">Calibração interrompida</h2>
+              <p className="font-body-lg text-on-surface-variant">{calibrationError}</p>
+            </div>
+            <div className="flex gap-4 flex-wrap justify-center">
+              <button
+                className="min-w-[220px] h-16 bg-secondary-container text-on-secondary-container font-eye-track-label rounded-full px-8"
+                onClick={startSession}
+              >
+                TENTAR NOVAMENTE
+              </button>
+              <button
+                className="min-w-[180px] h-16 border border-outline/30 text-on-surface-variant font-eye-track-label rounded-full px-8"
+                onClick={() => navigate('/')}
+              >
+                VOLTAR
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {phase === 'fitting' && (
         <div className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-4"
           style={{ background: '#000000' }}>

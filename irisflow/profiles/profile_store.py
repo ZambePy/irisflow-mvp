@@ -91,6 +91,19 @@ class ProfileStore:
             profile.last_used_at = datetime.now(timezone.utc).isoformat()
             self.save()
 
+    def mark_calibrated(self, profile_id: str, model_path: str, metrics: dict) -> Profile | None:
+        profile = self._profiles.get(profile_id)
+        if not profile:
+            return None
+        calibrated_at = datetime.now(timezone.utc).isoformat()
+        profile.is_calibrated = True
+        profile.calibration_model_path = model_path
+        profile.calibration_metrics = metrics
+        profile.calibrated_at = calibrated_at
+        profile.last_used_at = calibrated_at
+        self.save()
+        return profile
+
     # ── Helper ────────────────────────────────────────────────────────────
 
     @staticmethod
@@ -102,6 +115,10 @@ class ProfileStore:
             dwell_time_ms=d.get("dwell_time_ms", 1000),
             tracking_engine=d.get("tracking_engine", "mock"),
             favorite_phrases=d.get("favorite_phrases", []),
+            is_calibrated=d.get("is_calibrated", False),
+            calibration_model_path=d.get("calibration_model_path"),
+            calibration_metrics=d.get("calibration_metrics"),
+            calibrated_at=d.get("calibrated_at"),
             created_at=d.get("created_at", now),
             last_used_at=d.get("last_used_at", now),
         )
