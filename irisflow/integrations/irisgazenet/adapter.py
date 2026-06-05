@@ -144,12 +144,7 @@ class IrisGazeNetAdapter(BaseGazeEngine):
             logger.warning("[IrisGazeNetAdapter] já está rodando")
             return
         if not self._model_ready:
-            self.load_model()
-        if not self._model_ready:
-            raise RuntimeError(
-                "IrisGazeNetAdapter: modelo não carregado. "
-                "Certifique-se de que model_path existe ou chame calibrate()."
-            )
+            self.load_model()  # tenta carregar; sem modelo OK — emite UNCALIBRATED até calibrar
         self._running = True
         self._thread = threading.Thread(
             target=self._capture_loop,
@@ -170,7 +165,7 @@ class IrisGazeNetAdapter(BaseGazeEngine):
 
     @property
     def engine_name(self) -> str:
-        return "irisgazenet"
+        return "iris-gaze-net"
 
     @property
     def model_ready(self) -> bool:
@@ -254,19 +249,51 @@ class IrisGazeNetAdapter(BaseGazeEngine):
     # ── Loop de captura ───────────────────────────────────────────────────
 
     def _capture_loop(self) -> None:
+        # ── Fase 1: aguarda modelo sem tocar na câmera ────────────────────
+        # Evita conflito com a calibração que usa a mesma câmera.
+        # O cursor fica oculto (sem emissão de GazePoint) até o modelo existir.
+        from pathlib import Path as _Path
+        while self._running and not self._model_ready:
+            if self._config.model_path and _Path(self._config.model_path).exists():
+                self.load_model()
+                if self._model_ready:
+                    break
+            time.sleep(0.5)
+
+        if not self._running:
+            return
+
+        if not self._model_ready:
+            logger.warning("[IrisGazeNetAdapter] Loop encerrado — modelo não disponível")
+            self._running = False
+            return
+
+        # ── Fase 2: abre câmera e rastreia ───────────────────────────────
         import cv2
         import torch
         mp = _import_mediapipe()
         from torchvision import transforms
 
-        cap = cv2.VideoCapture(self._config.camera_index)
-        if not cap.isOpened():
-            cap.release()
-            cap = cv2.VideoCapture(1)
-        if not cap.isOpened():
-            logger.error("[IrisGazeNetAdapter] Nenhuma câmera disponível")
-            self._running = False
-            return
+        # Tenta reusar o VideoCapture da calibração; se indisponível, abre próprio.
+        own_cap = False
+        try:
+            from irisflow.api.routes.calibration import _get_cap as _cal_get_cap
+            cap = _cal_get_cap()
+            if cap is None or not cap.isOpened():
+                cap = None
+        except Exception:
+            cap = None
+
+        if cap is None:
+            cap = cv2.VideoCapture(self._config.camera_index)
+            if not cap.isOpened():
+                cap.release()
+                cap = cv2.VideoCapture(1)
+            if not cap.isOpened():
+                logger.error("[IrisGazeNetAdapter] Nenhuma câmera disponível")
+                self._running = False
+                return
+            own_cap = True
 
         face_mesh = mp.solutions.face_mesh.FaceMesh(
             static_image_mode=False,
@@ -290,7 +317,7 @@ class IrisGazeNetAdapter(BaseGazeEngine):
 
         interval = 1.0 / self._config.capture_fps
 
-        logger.debug("[IrisGazeNetAdapter] Loop de captura iniciado")
+        logger.info("[IrisGazeNetAdapter] Câmera aberta — rastreamento ativo")
         try:
             while self._running:
                 ret, frame = cap.read()
@@ -312,7 +339,6 @@ class IrisGazeNetAdapter(BaseGazeEngine):
                 lm = results.multi_face_landmarks[0].landmark
                 h, w = frame.shape[:2]
 
-                # Eye openness (Shoelace) para detecção de piscada
                 left_open  = _eye_openness(lm, _LEFT_OPEN_IDX,  w, h)
                 right_open = _eye_openness(lm, _RIGHT_OPEN_IDX, w, h)
 
@@ -328,13 +354,11 @@ class IrisGazeNetAdapter(BaseGazeEngine):
                     time.sleep(interval)
                     continue
 
-                # Face crop — bounding box de todos os 478 landmarks, quadrado
                 fx1, fy1, fx2, fy2 = _face_rect(lm, w, h)
                 if fx2 <= fx1 or fy2 <= fy1:
                     time.sleep(interval)
                     continue
 
-                # Escala baseada na distância entre os olhos (px)
                 scale = abs(lm[362].x - lm[133].x) * w / 100.0
 
                 lx1, ly1, lx2, ly2, l_oob = _eye_rect(lm, 33,  133, scale, w, h)
@@ -350,7 +374,6 @@ class IrisGazeNetAdapter(BaseGazeEngine):
                 left_crop  = frame[ly1:ly2, lx1:lx2]
                 right_crop = cv2.flip(frame[ry1:ry2, rx1:rx2], 1)
 
-                # Rect normalizado [fw,fh,fx,fy, lw,lh,lx,ly, rw,rh,rx,ry]
                 fw = fx2 - fx1;  fh = fy2 - fy1
                 lw = lx2 - lx1;  lh = ly2 - ly1
                 rw = rx2 - rx1;  rh = ry2 - ry1
@@ -370,10 +393,7 @@ class IrisGazeNetAdapter(BaseGazeEngine):
                     time.sleep(interval)
                     continue
 
-                # Deadzone
                 x, y = self._apply_deadzone(raw_x, raw_y)
-
-                # HeuristicFilter
                 x, y = self._heuristic_filter.filter_values(x, y)
 
                 self._last_valid_x = x
@@ -394,7 +414,8 @@ class IrisGazeNetAdapter(BaseGazeEngine):
         except Exception as e:
             logger.error(f"[IrisGazeNetAdapter] Erro no loop: {e}")
         finally:
-            cap.release()
+            if own_cap:
+                cap.release()
             face_mesh.close()
             logger.debug("[IrisGazeNetAdapter] Câmera liberada")
 

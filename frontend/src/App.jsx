@@ -46,16 +46,14 @@ function AppShell() {
 
 function AppBootstrap() {
   const [ready, setReady] = useState(false)
-  const [hasProfile, setHasProfile] = useState(false)
   const [backendError, setBackendError] = useState('')
   const bootstrapAttemptRef = useRef(0)
-  const activeProfile = useAppStore(state => state.activeProfile)
   const setActiveProfile = useAppStore(state => state.setActiveProfile)
   const setDwellTime = useAppStore(state => state.setDwellTime)
   const setTrackingEngine = useAppStore(state => state.setTrackingEngine)
   const setCalibrated = useAppStore(state => state.setCalibrated)
-  const location = useLocation()
-  const comingFromOnboarding = location.state?.from === 'onboarding'
+  // useLocation garante re-render ao navegar (necessário para reler sessionStorage)
+  useLocation()
 
   useEffect(() => {
     const attemptId = bootstrapAttemptRef.current + 1
@@ -75,17 +73,14 @@ function AppBootstrap() {
         if (!isCurrentAttempt()) return
 
         setBackendError('')
-        if (!profile) {
+        if (profile) {
+          setActiveProfile(profile)
+          setDwellTime(profile.dwell_time_ms ?? 1500)
+          setTrackingEngine(profile.tracking_engine ?? 'mock')
+        } else {
           setActiveProfile(null)
           setCalibrated(false)
-          setHasProfile(false)
-          return
         }
-
-        setActiveProfile(profile)
-        setDwellTime(profile.dwell_time_ms ?? 1500)
-        setTrackingEngine(profile.tracking_engine ?? 'mock')
-        setHasProfile(true)
 
         try {
           const calibrationRes = await fetch(`${API_BASE_URL}/calibration/result`, { signal: controller.signal })
@@ -106,7 +101,6 @@ function AppBootstrap() {
         setBackendError(e.name === 'AbortError'
           ? 'Backend não respondeu dentro do tempo esperado.'
           : 'Backend desconectado. Inicie o servidor IrisFlow para continuar.')
-        setHasProfile(false)
         setActiveProfile(null)
         setCalibrated(false)
       } finally {
@@ -146,15 +140,15 @@ function AppBootstrap() {
     )
   }
 
+  const profileSetupDone = sessionStorage.getItem('profile_setup_done') === 'true'
+
   return (
     <Routes>
       <Route path="/welcome"          element={<Welcome />} />
       <Route path="/profile-setup"    element={<ProfileSetup />} />
       <Route path="/onboarding-ready" element={<OnboardingReady />} />
       <Route path="/*" element={
-        (hasProfile || !!activeProfile || comingFromOnboarding)
-          ? <AppShell />
-          : <Navigate to="/welcome" replace />
+        profileSetupDone ? <AppShell /> : <Navigate to="/profile-setup" replace />
       } />
     </Routes>
   )

@@ -133,6 +133,15 @@ async def handle_message(websocket: WebSocket, message: dict) -> None:
             "engine": tracking.engine_name if tracking else None,
         })
 
+    elif msg_type == "set_engine":
+        engine_name = message.get("engine", "mock")
+        await _start_tracking_engine(engine_name)
+        await manager.send_to(websocket, {
+            "type": "tracking_status",
+            "running": True,
+            "engine": engine_name,
+        })
+
     elif msg_type == "start_tracking":
         await start_tracking(websocket, message.get("engine", config.tracking_engine))
 
