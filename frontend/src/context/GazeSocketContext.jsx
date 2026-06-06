@@ -8,7 +8,8 @@ export function GazeSocketProvider({ children }) {
   const wsRef = useRef(null)
   const [connected, setConnected] = useState(false)
   const [engine, setEngine] = useState(null)
-  const [gazePoint, setGazePoint] = useState({ x: 0, y: 0 })
+  const [gazePoint, setGazePoint] = useState(null)
+  const [trackingMessage, setTrackingMessage] = useState('')
 
   // calibrated e dwellTime vêm do appStore — fonte única de verdade (sem estado duplicado aqui)
   const calibrated = useAppStore(state => state.isCalibrated)
@@ -33,6 +34,7 @@ export function GazeSocketProvider({ children }) {
         if (destroyed) { ws.close(); return }
         console.log('[IrisFlow] Backend conectado')
         setConnected(true)
+        setTrackingMessage('')
         ws.send(JSON.stringify({ type: 'client_ready' }))
       }
 
@@ -41,6 +43,7 @@ export function GazeSocketProvider({ children }) {
         console.log('[IrisFlow] Backend desconectado — reconectando em 3s')
         setConnected(false)
         setEngine(null)
+        setTrackingMessage('')
         timeoutId = setTimeout(connect, 3000)
       }
 
@@ -53,16 +56,18 @@ export function GazeSocketProvider({ children }) {
         const data = JSON.parse(e.data)
         switch (data.type) {
           case 'gaze':
-            setGazePoint({ x: data.x, y: data.y })
+            setGazePoint(data)
             break
           case 'tracking_status':
             setEngine(data.engine)
+            setTrackingMessage(data.message || '')
             console.log('[IrisFlow] Tracking:', data.running, '— engine:', data.engine)
             break
           case 'emergency_activated':
             console.warn('[IrisFlow] Emergência activada pelo backend')
             break
           case 'error':
+            setTrackingMessage(data.message || 'Erro no tracking')
             console.error('[IrisFlow]', data.message)
             break
         }
@@ -94,6 +99,7 @@ export function GazeSocketProvider({ children }) {
   return (
     <GazeSocketContext.Provider value={{
       connected, engine, gazePoint, calibrated,
+      trackingMessage,
       sendMessage, registerDwellRegion, unregisterDwellRegion,
     }}>
       {children}

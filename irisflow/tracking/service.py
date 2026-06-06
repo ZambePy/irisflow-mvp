@@ -38,6 +38,10 @@ class TrackingService:
     def engine_name(self) -> str:
         return self._engine.engine_name
 
+    @property
+    def status_message(self) -> str | None:
+        return getattr(self._engine, "status_message", None)
+
     def _on_gaze(self, point: GazePoint) -> None:
         for cb in self._listeners:
             cb(point)

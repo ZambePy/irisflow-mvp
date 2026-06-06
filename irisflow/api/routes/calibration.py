@@ -17,6 +17,8 @@ import numpy as np
 from fastapi import APIRouter
 from pydantic import BaseModel
 from irisflow.profiles.profile_store import ProfileStore
+from irisflow.core.logger import logger
+from irisflow.tracking.filter import HeuristicFilter
 
 router = APIRouter()
 _collect_lock = threading.Lock()
@@ -188,6 +190,56 @@ class FitCalibrationBody(BaseModel):
     profile_id: str | None = None
     screen_w: int | None = None
     screen_h: int | None = None
+
+
+def _smooth_preview(points: np.ndarray, limit: int = 5) -> list[list[float]]:
+    filt = HeuristicFilter(look_ahead=3)
+    smoothed = []
+    for x, y in points:
+        sx, sy = filt.filter_values(float(x), float(y))
+        smoothed.append([float(sx), float(sy)])
+        if len(smoothed) >= limit:
+            break
+    return smoothed
+
+
+def _log_calibration_diagnostics(diagnostics: dict) -> None:
+    logger.info("[IrisGazeNetCalibration] samples=%s", diagnostics.get("n_samples"))
+    logger.info(
+        "[IrisGazeNetCalibration] unique_target_points=%s",
+        diagnostics.get("unique_target_points"),
+    )
+    logger.info("[IrisGazeNetCalibration] screen_x=%s", diagnostics.get("screen_x"))
+    logger.info("[IrisGazeNetCalibration] screen_y=%s", diagnostics.get("screen_y"))
+    logger.info("[IrisGazeNetCalibration] features=%s", diagnostics.get("features"))
+    logger.info(
+        "[IrisGazeNetCalibration] features_scaled=%s",
+        diagnostics.get("features_scaled"),
+    )
+    logger.info(
+        "[IrisGazeNetCalibration] first_5_labels=%s",
+        diagnostics.get("first_5_labels"),
+    )
+    logger.info(
+        "[IrisGazeNetCalibration] first_5_predictions_before_smoothing=%s",
+        diagnostics.get("first_5_predictions_before_smoothing"),
+    )
+    logger.info(
+        "[IrisGazeNetCalibration] first_5_predictions_after_smoothing=%s",
+        diagnostics.get("first_5_predictions_after_smoothing"),
+    )
+    logger.info(
+        "[IrisGazeNetCalibration] train_loss_progression=%s",
+        diagnostics.get("train_loss_progression"),
+    )
+    logger.info(
+        "[IrisGazeNetCalibration] predictions_vary_before_denormalization=%s",
+        diagnostics.get("predictions_vary_before_denormalization"),
+    )
+    logger.info(
+        "[IrisGazeNetCalibration] predictions_vary_after_denormalization=%s",
+        diagnostics.get("predictions_vary_after_denormalization"),
+    )
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
@@ -379,7 +431,50 @@ def fit_calibration(body: FitCalibrationBody | None = None) -> dict:
             face_images, left_images, right_images, rects, targets,
             screen_w=screen_w,
             screen_h=screen_h,
+            svr_kernel="linear",
         )
+
+        features = estimator.extractor.extract_numpy(
+            face_images, left_images, right_images, rects
+        )
+        validation_preds = estimator.predict_from_features(features, clamp=True)
+        validation_span_x = float(np.ptp(validation_preds[:, 0]))
+        validation_span_y = float(np.ptp(validation_preds[:, 1]))
+        diagnostics = {
+            **metrics.get("diagnostics", {}),
+            "first_5_predictions_after_smoothing": _smooth_preview(validation_preds),
+            "validation_prediction_span": {
+                "x": validation_span_x,
+                "y": validation_span_y,
+            },
+            "accepted_min_prediction_span_px": irisgazenet_config.min_prediction_span_px,
+        }
+        estimator.training_diagnostics = diagnostics
+        metrics["diagnostics"] = diagnostics
+        metrics["validation_prediction_span_x"] = validation_span_x
+        metrics["validation_prediction_span_y"] = validation_span_y
+        _log_calibration_diagnostics(diagnostics)
+
+        min_span = irisgazenet_config.min_prediction_span_px
+        target_span_x = float(np.ptp(targets[:, 0]))
+        target_span_y = float(np.ptp(targets[:, 1]))
+        if target_span_x < min_span or target_span_y < min_span:
+            return {
+                "error": (
+                    "Calibracao invalida: os pontos alvo nao variam o suficiente "
+                    f"(target_span_x={target_span_x:.1f}px, target_span_y={target_span_y:.1f}px)."
+                ),
+                "diagnostics": diagnostics,
+            }
+        if validation_span_x < min_span or validation_span_y < min_span:
+            return {
+                "error": (
+                    "Calibracao gerou modelo estatico em entradas de calibracao "
+                    f"(span_x={validation_span_x:.1f}px, span_y={validation_span_y:.1f}px). "
+                    "Refaca a calibracao olhando para todos os pontos."
+                ),
+                "diagnostics": diagnostics,
+            }
 
         model_path = irisgazenet_config.model_path
         Path(model_path).parent.mkdir(parents=True, exist_ok=True)
@@ -392,6 +487,7 @@ def fit_calibration(body: FitCalibrationBody | None = None) -> dict:
         "model_path": str(model_path),
         "screen_w": screen_w,
         "screen_h": screen_h,
+        "diagnostics": metrics.get("diagnostics"),
     }
     _cal_session["status"]  = "calibrated"
 
@@ -417,6 +513,12 @@ def fit_calibration(body: FitCalibrationBody | None = None) -> dict:
         "model_path": str(model_path),
         "screen_w": screen_w,
         "screen_h": screen_h,
+        "prediction_span_x": round(metrics["prediction_span_x"], 1),
+        "prediction_span_y": round(metrics["prediction_span_y"], 1),
+        "validation_prediction_span_x": round(metrics["validation_prediction_span_x"], 1),
+        "validation_prediction_span_y": round(metrics["validation_prediction_span_y"], 1),
+        "svr_kernel": metrics["svr_kernel"],
+        "diagnostics": metrics.get("diagnostics"),
         "accuracy":  accuracy,
         "status":    "calibrated",
     }

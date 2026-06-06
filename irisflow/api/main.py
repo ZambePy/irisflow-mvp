@@ -99,6 +99,7 @@ async def health() -> dict:
         "status": "ok",
         "tracking": tracking.is_running() if tracking else False,
         "engine": tracking.engine_name if tracking else None,
+        "tracking_message": tracking.status_message if tracking else None,
     }
 
 
@@ -131,16 +132,12 @@ async def handle_message(websocket: WebSocket, message: dict) -> None:
             "type": "tracking_status",
             "running": tracking.is_running() if tracking else False,
             "engine": tracking.engine_name if tracking else None,
+            "message": tracking.status_message if tracking else None,
         })
 
     elif msg_type == "set_engine":
         engine_name = message.get("engine", "mock")
-        await _start_tracking_engine(engine_name)
-        await manager.send_to(websocket, {
-            "type": "tracking_status",
-            "running": True,
-            "engine": engine_name,
-        })
+        await start_tracking(websocket, engine_name)
 
     elif msg_type == "start_tracking":
         await start_tracking(websocket, message.get("engine", config.tracking_engine))
@@ -175,7 +172,9 @@ async def _start_tracking_engine(engine_name: str) -> None:
     """Inicializa ou reinicializa o engine de rastreamento (sem broadcast)."""
     global tracking, dwell
     loop = asyncio.get_running_loop()
+    emit_count = 0
 
+    logger.info(f"[API] Engine selecionado: {engine_name}")
     gaze_engine = create_engine(engine_name)
     next_tracking = TrackingService(gaze_engine)
     next_dwell = DwellController(
@@ -184,6 +183,15 @@ async def _start_tracking_engine(engine_name: str) -> None:
     )
 
     def on_gaze(point) -> None:
+        nonlocal emit_count
+        emit_count += 1
+        if emit_count == 1 or emit_count % 60 == 0:
+            logger.debug(
+                "[API] Emitindo gaze WS "
+                f"#{emit_count}: engine={next_tracking.engine_name} "
+                f"x={point.x:.1f} y={point.y:.1f} raw=({point.raw_x:.1f},{point.raw_y:.1f}) "
+                f"state={point.tracking_state}"
+            )
         asyncio.run_coroutine_threadsafe(
             manager.broadcast({
                 "type": "gaze",
@@ -262,6 +270,7 @@ async def start_tracking(websocket: WebSocket, engine_name: str) -> None:
             "type": "tracking_status",
             "running": True,
             "engine": engine_name,
+            "message": tracking.status_message,
         })
         return
 
@@ -270,10 +279,17 @@ async def start_tracking(websocket: WebSocket, engine_name: str) -> None:
         await manager.broadcast({
             "type": "tracking_status",
             "running": True,
-            "engine": engine_name,
+            "engine": tracking.engine_name if tracking else engine_name,
+            "message": tracking.status_message if tracking else None,
         })
     except Exception as e:
-        await manager.broadcast({"type": "error", "message": str(e)})
+        await manager.broadcast({"type": "error", "message": str(e), "engine": engine_name})
+        await manager.broadcast({
+            "type": "tracking_status",
+            "running": tracking.is_running() if tracking else False,
+            "engine": tracking.engine_name if tracking else None,
+            "message": str(e),
+        })
         logger.error(f"[API] Erro ao iniciar tracking: {e}")
 
 

@@ -22,6 +22,28 @@ import torch.nn as nn
 import torchvision.models as models
 
 
+def _array_stats(values: np.ndarray) -> dict:
+    arr = np.asarray(values, dtype=np.float64)
+    return {
+        "min": float(np.min(arr)),
+        "max": float(np.max(arr)),
+        "std": float(np.std(arr)),
+    }
+
+
+def _point_span(points: np.ndarray) -> dict:
+    arr = np.asarray(points, dtype=np.float64)
+    return {
+        "x": float(np.ptp(arr[:, 0])),
+        "y": float(np.ptp(arr[:, 1])),
+    }
+
+
+def _first_points(points: np.ndarray, n: int = 5) -> list[list[float]]:
+    arr = np.asarray(points, dtype=np.float64)[:n]
+    return [[float(x), float(y)] for x, y in arr]
+
+
 class IrisFeatureExtractor(nn.Module):
     """
     Extrator multi-fonte: face + dois olhos + geometria.
@@ -111,6 +133,8 @@ class IrisGazeEstimator:
         self.is_calibrated: bool = False
         self.screen_w: int = 1920
         self.screen_h: int = 1080
+        self.training_diagnostics: dict = {}
+        self.svr_kernel: str | None = None
 
     def calibrate(
         self,
@@ -121,7 +145,7 @@ class IrisGazeEstimator:
         targets: np.ndarray,
         screen_w: int = 1920,
         screen_h: int = 1080,
-        svr_kernel: str = "rbf",
+        svr_kernel: str = "linear",
         svr_C: float = 10.0,
         svr_gamma: str = "scale",
         svr_epsilon: float = 0.1,
@@ -148,14 +172,23 @@ class IrisGazeEstimator:
 
         self.screen_w = screen_w
         self.screen_h = screen_h
+        self.svr_kernel = svr_kernel
 
         if features is None:
             features = self.extractor.extract_numpy(
                 face_images, left_images, right_images, rects
             )  # (N, 2572)
+        features = np.asarray(features, dtype=np.float32)
+        targets = np.asarray(targets, dtype=np.float32)
 
         self.scaler = StandardScaler()
         features_scaled = self.scaler.fit_transform(features)
+
+        baseline_x = np.full(len(targets), float(np.mean(targets[:, 0])))
+        baseline_y = np.full(len(targets), float(np.mean(targets[:, 1])))
+        baseline_mae_x = float(np.mean(np.abs(baseline_x - targets[:, 0])))
+        baseline_mae_y = float(np.mean(np.abs(baseline_y - targets[:, 1])))
+        baseline_mae_total = float(np.sqrt(baseline_mae_x**2 + baseline_mae_y**2))
 
         self.svr_x = SVR(
             kernel=svr_kernel, C=svr_C, gamma=svr_gamma, epsilon=svr_epsilon
@@ -171,6 +204,28 @@ class IrisGazeEstimator:
         pred_y = self.svr_y.predict(features_scaled)
         mae_x = float(np.mean(np.abs(pred_x - targets[:, 0])))
         mae_y = float(np.mean(np.abs(pred_y - targets[:, 1])))
+        preds = np.column_stack([pred_x, pred_y])
+
+        self.training_diagnostics = self.build_training_diagnostics(
+            features=features,
+            features_scaled=features_scaled,
+            targets=targets,
+            predictions=preds,
+            train_loss_progression=[
+                {
+                    "stage": "target_mean_baseline",
+                    "mae_x": baseline_mae_x,
+                    "mae_y": baseline_mae_y,
+                    "mae_total": baseline_mae_total,
+                },
+                {
+                    "stage": f"svr_{svr_kernel}_fit",
+                    "mae_x": mae_x,
+                    "mae_y": mae_y,
+                    "mae_total": float(np.sqrt(mae_x**2 + mae_y**2)),
+                },
+            ],
+        )
 
         return {
             "mae_x": mae_x,
@@ -179,7 +234,58 @@ class IrisGazeEstimator:
             "n_samples": len(targets),
             "n_support_vectors_x": len(self.svr_x.support_vectors_),
             "n_support_vectors_y": len(self.svr_y.support_vectors_),
+            "prediction_span_x": self.training_diagnostics["prediction_span"]["x"],
+            "prediction_span_y": self.training_diagnostics["prediction_span"]["y"],
+            "target_span_x": self.training_diagnostics["target_span"]["x"],
+            "target_span_y": self.training_diagnostics["target_span"]["y"],
+            "svr_kernel": svr_kernel,
+            "diagnostics": self.training_diagnostics,
         }
+
+    def build_training_diagnostics(
+        self,
+        features: np.ndarray,
+        features_scaled: np.ndarray,
+        targets: np.ndarray,
+        predictions: np.ndarray,
+        train_loss_progression: list[dict],
+    ) -> dict:
+        return {
+            "n_samples": int(len(targets)),
+            "unique_target_points": int(len(np.unique(targets, axis=0))),
+            "screen_x": _array_stats(targets[:, 0]),
+            "screen_y": _array_stats(targets[:, 1]),
+            "features": _array_stats(features),
+            "features_scaled": _array_stats(features_scaled),
+            "target_span": _point_span(targets),
+            "prediction_span": _point_span(predictions),
+            "first_5_labels": _first_points(targets),
+            "first_5_predictions_before_smoothing": _first_points(predictions),
+            "train_loss_progression": train_loss_progression,
+            "predictions_vary_before_denormalization": bool(
+                np.ptp(predictions[:, 0]) > 1e-6 or np.ptp(predictions[:, 1]) > 1e-6
+            ),
+            "predictions_vary_after_denormalization": bool(
+                np.ptp(predictions[:, 0]) > 1e-6 or np.ptp(predictions[:, 1]) > 1e-6
+            ),
+        }
+
+    def predict_from_features(self, features: np.ndarray, clamp: bool = True) -> np.ndarray:
+        if not self.is_calibrated:
+            raise RuntimeError(
+                "IrisGazeEstimator não calibrado. Chame calibrate() antes de predict()."
+            )
+        features = np.asarray(features, dtype=np.float32)
+        if features.ndim == 1:
+            features = features.reshape(1, -1)
+        features_scaled = self.scaler.transform(features)
+        pred_x = self.svr_x.predict(features_scaled)
+        pred_y = self.svr_y.predict(features_scaled)
+        preds = np.column_stack([pred_x, pred_y]).astype(np.float32)
+        if clamp:
+            preds[:, 0] = np.clip(preds[:, 0], 0.0, float(self.screen_w))
+            preds[:, 1] = np.clip(preds[:, 1], 0.0, float(self.screen_h))
+        return preds
 
     def predict(
         self,
@@ -209,11 +315,9 @@ class IrisGazeEstimator:
                 "Chame calibrate() antes de predict()."
             )
         features = self.extractor.extract_numpy(face_img, left_img, right_img, rect)
-        features_scaled = self.scaler.transform(features)
-        x = float(self.svr_x.predict(features_scaled)[0])
-        y = float(self.svr_y.predict(features_scaled)[0])
-        x = max(0.0, min(x, float(self.screen_w)))
-        y = max(0.0, min(y, float(self.screen_h)))
+        x, y = self.predict_from_features(features, clamp=True)[0]
+        x = float(x)
+        y = float(y)
         return x, y
 
     def save(self, path: str) -> None:
@@ -235,6 +339,8 @@ class IrisGazeEstimator:
             "screen_h": self.screen_h,
             "feature_dim": self.extractor.output_dim(),
             "feature_version": 2,
+            "svr_kernel": self.svr_kernel,
+            "training_diagnostics": self.training_diagnostics,
             "architecture": "MobileNetV2+SVR multi-fonte (IrisFlow v2, GazeFollower)",
         }
         with open(path, "wb") as f:
@@ -267,6 +373,8 @@ class IrisGazeEstimator:
         obj.is_calibrated = data["is_calibrated"]
         obj.screen_w = data["screen_w"]
         obj.screen_h = data["screen_h"]
+        obj.svr_kernel = data.get("svr_kernel")
+        obj.training_diagnostics = data.get("training_diagnostics", {})
         return obj
 
 

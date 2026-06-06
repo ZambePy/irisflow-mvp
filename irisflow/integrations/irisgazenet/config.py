@@ -20,6 +20,10 @@ class IrisGazeNetConfig:
     deadzone_radius: float = 12.0   # distância mínima (px) para considerar movimento real
     deadzone_frames: int = 25       # frames parado antes de liberar o cursor
 
+    # Validação mínima do modelo carregado. Se um eixo não consegue variar ao
+    # menos isso nos próprios support vectors, o cursor ficará visualmente parado.
+    min_prediction_span_px: float = 24.0
+
     # Dimensões da tela (usadas como fallback no predict)
     screen_w: int = 1920
     screen_h: int = 1080

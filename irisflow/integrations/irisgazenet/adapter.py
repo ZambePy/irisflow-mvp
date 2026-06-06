@@ -128,6 +128,7 @@ class IrisGazeNetAdapter(BaseGazeEngine):
         self._thread: threading.Thread | None = None
         self._estimator = None
         self._model_ready = False
+        self._status_message = "IrisGazeNet aguardando inicializacao"
 
         self._deadzone_x: float = 0.0
         self._deadzone_y: float = 0.0
@@ -144,7 +145,9 @@ class IrisGazeNetAdapter(BaseGazeEngine):
             logger.warning("[IrisGazeNetAdapter] já está rodando")
             return
         if not self._model_ready:
-            self.load_model()  # tenta carregar; sem modelo OK — emite UNCALIBRATED até calibrar
+            self.load_model()
+        if not self._model_ready:
+            raise RuntimeError(self._status_message)
         self._running = True
         self._thread = threading.Thread(
             target=self._capture_loop,
@@ -171,6 +174,10 @@ class IrisGazeNetAdapter(BaseGazeEngine):
     def model_ready(self) -> bool:
         return self._model_ready
 
+    @property
+    def status_message(self) -> str:
+        return self._status_message
+
     # ── Carregamento de modelo ────────────────────────────────────────────
 
     def load_model(self, path: str | None = None) -> bool:
@@ -183,18 +190,102 @@ class IrisGazeNetAdapter(BaseGazeEngine):
 
         model_path = path or self._config.model_path
         if not model_path or not Path(model_path).exists():
+            self._status_message = (
+                "IrisGazeNet requer calibracao: modelo nao encontrado. "
+                "Execute a calibracao antes de iniciar este engine."
+            )
             logger.warning(f"[IrisGazeNetAdapter] Modelo não encontrado: {model_path}")
             return False
 
         try:
             from model import IrisGazeEstimator
             self._estimator = IrisGazeEstimator.load(str(model_path))
+            self._validate_loaded_model()
             self._model_ready = True
+            self._status_message = "IrisGazeNet pronto"
             logger.info(f"[IrisGazeNetAdapter] Modelo carregado: {model_path}")
             return True
         except Exception as e:
+            self._estimator = None
+            self._model_ready = False
+            self._status_message = f"IrisGazeNet nao pode iniciar: {e}"
             logger.error(f"[IrisGazeNetAdapter] Erro ao carregar modelo: {e}")
             return False
+
+    def _validate_loaded_model(self) -> None:
+        if self._estimator is None:
+            raise RuntimeError("modelo nao foi carregado")
+
+        if not getattr(self._estimator, "is_calibrated", False):
+            raise RuntimeError(
+                "modelo nao calibrado. Execute a calibracao antes de iniciar o IrisGazeNet."
+            )
+
+        missing = [
+            name
+            for name in ("scaler", "svr_x", "svr_y")
+            if getattr(self._estimator, name, None) is None
+        ]
+        if missing:
+            raise RuntimeError(
+                "modelo incompleto: faltam " + ", ".join(missing) + ". Recalibre o IrisGazeNet."
+            )
+
+        spans = self._support_vector_prediction_spans()
+        if spans is None:
+            return
+
+        span_x, span_y = spans
+        logger.info(
+            "[IrisGazeNetAdapter] Validacao do modelo: "
+            f"span_x={span_x:.1f}px span_y={span_y:.1f}px"
+        )
+        if (
+            span_x < self._config.min_prediction_span_px
+            or span_y < self._config.min_prediction_span_px
+        ):
+            raise RuntimeError(
+                "modelo calibrado nao varia coordenadas suficientes "
+                f"(span_x={span_x:.1f}px, span_y={span_y:.1f}px). "
+                "Recalibre o IrisGazeNet; este modelo produziria cursor estatico."
+            )
+
+        diagnostics = getattr(self._estimator, "training_diagnostics", {}) or {}
+        validation_span = diagnostics.get("validation_prediction_span")
+        if not validation_span:
+            raise RuntimeError(
+                "modelo legado sem validacao de calibracao salva. "
+                "Recalibre o IrisGazeNet para gerar um modelo validado."
+            )
+        validation_span_x = float(validation_span.get("x", 0.0))
+        validation_span_y = float(validation_span.get("y", 0.0))
+        logger.info(
+            "[IrisGazeNetAdapter] Validacao salva: "
+            f"span_x={validation_span_x:.1f}px span_y={validation_span_y:.1f}px"
+        )
+        if (
+            validation_span_x < self._config.min_prediction_span_px
+            or validation_span_y < self._config.min_prediction_span_px
+        ):
+            raise RuntimeError(
+                "modelo salvo falhou validacao de calibracao "
+                f"(span_x={validation_span_x:.1f}px, span_y={validation_span_y:.1f}px). "
+                "Recalibre o IrisGazeNet."
+            )
+
+    def _support_vector_prediction_spans(self) -> tuple[float, float] | None:
+        try:
+            svr_x = self._estimator.svr_x
+            svr_y = self._estimator.svr_y
+            support_vectors = getattr(svr_x, "support_vectors_", None)
+            if support_vectors is None or len(support_vectors) == 0:
+                return None
+            pred_x = svr_x.predict(support_vectors)
+            pred_y = svr_y.predict(support_vectors)
+            return float(np.ptp(pred_x)), float(np.ptp(pred_y))
+        except Exception as exc:
+            logger.warning(f"[IrisGazeNetAdapter] Nao foi possivel validar variacao do modelo: {exc}")
+            return None
 
     # ── Calibração ────────────────────────────────────────────────────────
 
@@ -233,7 +324,22 @@ class IrisGazeNetAdapter(BaseGazeEngine):
             screen_w=screen_w,
             screen_h=screen_h,
         )
+        features = self._estimator.extractor.extract_numpy(
+            face_images, left_images, right_images, rects
+        )
+        validation_preds = self._estimator.predict_from_features(features, clamp=True)
+        diagnostics = {
+            **metrics.get("diagnostics", {}),
+            "validation_prediction_span": {
+                "x": float(np.ptp(validation_preds[:, 0])),
+                "y": float(np.ptp(validation_preds[:, 1])),
+            },
+            "accepted_min_prediction_span_px": self._config.min_prediction_span_px,
+        }
+        self._estimator.training_diagnostics = diagnostics
+        self._validate_loaded_model()
         self._model_ready = True
+        self._status_message = "IrisGazeNet calibrado e pronto"
 
         if self._config.model_path:
             try:
@@ -249,26 +355,11 @@ class IrisGazeNetAdapter(BaseGazeEngine):
     # ── Loop de captura ───────────────────────────────────────────────────
 
     def _capture_loop(self) -> None:
-        # ── Fase 1: aguarda modelo sem tocar na câmera ────────────────────
-        # Evita conflito com a calibração que usa a mesma câmera.
-        # O cursor fica oculto (sem emissão de GazePoint) até o modelo existir.
-        from pathlib import Path as _Path
-        while self._running and not self._model_ready:
-            if self._config.model_path and _Path(self._config.model_path).exists():
-                self.load_model()
-                if self._model_ready:
-                    break
-            time.sleep(0.5)
-
-        if not self._running:
-            return
-
         if not self._model_ready:
-            logger.warning("[IrisGazeNetAdapter] Loop encerrado — modelo não disponível")
+            logger.error(f"[IrisGazeNetAdapter] Capture loop sem modelo pronto: {self._status_message}")
             self._running = False
             return
 
-        # ── Fase 2: abre câmera e rastreia ───────────────────────────────
         import cv2
         import torch
         mp = _import_mediapipe()
@@ -318,6 +409,11 @@ class IrisGazeNetAdapter(BaseGazeEngine):
         interval = 1.0 / self._config.capture_fps
 
         logger.info("[IrisGazeNetAdapter] Câmera aberta — rastreamento ativo")
+        frame_count = 0
+        face_count = 0
+        predict_count = 0
+        static_prediction_frames = 0
+        last_raw: tuple[float, float] | None = None
         try:
             while self._running:
                 ret, frame = cap.read()
@@ -325,6 +421,9 @@ class IrisGazeNetAdapter(BaseGazeEngine):
                     logger.warning("[IrisGazeNetAdapter] Frame inválido")
                     time.sleep(interval)
                     continue
+                frame_count += 1
+                if frame_count == 1 or frame_count % 60 == 0:
+                    logger.debug(f"[IrisGazeNetAdapter] Frame recebido #{frame_count}")
 
                 rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 results = face_mesh.process(rgb)
@@ -335,6 +434,9 @@ class IrisGazeNetAdapter(BaseGazeEngine):
                     ))
                     time.sleep(interval)
                     continue
+                face_count += 1
+                if face_count == 1 or face_count % 60 == 0:
+                    logger.debug(f"[IrisGazeNetAdapter] Face/olhos detectados #{face_count}")
 
                 lm = results.multi_face_landmarks[0].landmark
                 h, w = frame.shape[:2]
@@ -392,6 +494,18 @@ class IrisGazeNetAdapter(BaseGazeEngine):
                     logger.debug(f"[IrisGazeNetAdapter] Erro predict: {e}")
                     time.sleep(interval)
                     continue
+                predict_count += 1
+                if last_raw is not None and math.hypot(raw_x - last_raw[0], raw_y - last_raw[1]) < 0.01:
+                    static_prediction_frames += 1
+                else:
+                    static_prediction_frames = 0
+                last_raw = (raw_x, raw_y)
+
+                if static_prediction_frames == 90:
+                    self._status_message = (
+                        "IrisGazeNet esta retornando predicoes estaticas; recalibre o modelo."
+                    )
+                    logger.warning(f"[IrisGazeNetAdapter] {self._status_message}")
 
                 x, y = self._apply_deadzone(raw_x, raw_y)
                 x, y = self._heuristic_filter.filter_values(x, y)
@@ -408,6 +522,12 @@ class IrisGazeNetAdapter(BaseGazeEngine):
                     blink=False,
                     tracking_state=tracking_state,
                 ))
+                if predict_count == 1 or predict_count % 60 == 0:
+                    logger.debug(
+                        "[IrisGazeNetAdapter] Predicao/emissao "
+                        f"#{predict_count}: raw=({raw_x:.1f},{raw_y:.1f}) "
+                        f"filtrado=({x:.1f},{y:.1f}) state={tracking_state}"
+                    )
 
                 time.sleep(interval)
 

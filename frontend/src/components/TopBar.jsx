@@ -2,7 +2,7 @@ import { useGazeSocket } from '../context/GazeSocketContext'
 import { useAppStore } from '../store/appStore'
 
 export default function TopBar() {
-  const { connected, calibrated } = useGazeSocket()
+  const { connected, calibrated, trackingMessage } = useGazeSocket()
   const activeProfile = useAppStore(state => state.activeProfile)
 
   return (
@@ -19,6 +19,12 @@ export default function TopBar() {
           <div className="flex items-center gap-3 bg-primary/10 px-4 py-2 rounded-full border border-primary/20">
             <span className="material-symbols-outlined text-primary text-sm">target</span>
             <span className="font-label-lg text-label-lg text-primary">Calibration Active: 98% Accuracy</span>
+          </div>
+        )}
+        {connected && trackingMessage && trackingMessage !== 'IrisGazeNet pronto' && (
+          <div className="flex items-center gap-3 bg-error/10 px-4 py-2 rounded-full border border-error/20 max-w-[520px]">
+            <span className="material-symbols-outlined text-error text-sm">error</span>
+            <span className="font-label-lg text-label-lg text-error truncate">{trackingMessage}</span>
           </div>
         )}
         {!connected && (
