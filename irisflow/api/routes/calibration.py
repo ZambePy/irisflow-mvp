@@ -228,150 +228,78 @@ def _log_calibration_diagnostics(diagnostics: dict) -> None:
         "[IrisGazeNetCalibration] first_5_predictions_after_smoothing=%s",
         diagnostics.get("first_5_predictions_after_smoothing"),
     )
-    logger.info(
-        "[IrisGazeNetCalibration] train_loss_progression=%s",
-        diagnostics.get("train_loss_progression"),
-    )
-    logger.info(
-        "[IrisGazeNetCalibration] predictions_vary_before_denormalization=%s",
-        diagnostics.get("predictions_vary_before_denormalization"),
-    )
-    logger.info(
-        "[IrisGazeNetCalibration] predictions_vary_after_denormalization=%s",
-        diagnostics.get("predictions_vary_after_denormalization"),
-    )
 
-
-# ── Endpoints ─────────────────────────────────────────────────────────────────
 
 @router.post("/open_camera")
-def open_camera() -> dict:
+async def open_camera() -> dict:
     """Pré-aquece a câmera sem iniciar uma sessão de calibração."""
-    cap = _get_cap()
-    return {"ok": cap is not None and cap.isOpened(), "camera": 0 if cap and cap.isOpened() else None}
+    try:
+        from irisflow.api.main import tracking, _start_tracking_engine
+        if tracking:
+            if tracking.engine_name != "iris-gaze-net":
+                await _start_tracking_engine("irisgazenet")
+            tracking.start_calibration_mode()
+            return {"ok": True, "camera": 0}
+    except Exception as e:
+        logger.warning(f"[CalibrationRoute] Falha ao pré-aquecer câmera: {e}")
+    return {"ok": False, "camera": None}
 
 
 @router.post("/new_session")
-def new_session() -> dict:
+async def new_session() -> dict:
     """Reseta o estado completo da sessão de calibração."""
     _reset_session()
+    try:
+        from irisflow.api.main import tracking, _start_tracking_engine
+        if tracking:
+            if tracking.engine_name != "iris-gaze-net":
+                await _start_tracking_engine("irisgazenet")
+            tracking.start_calibration_mode()
+    except Exception as e:
+        logger.error(f"[CalibrationRoute] Erro ao iniciar modo calibração: {e}")
     return {"ok": True}
 
 
 @router.post("/collect_point")
-def collect_point(req: CollectPointBody) -> dict:
+async def collect_point(req: CollectPointBody) -> dict:
     """
     Coleta _N_FRAME_NEED frames válidos para um ponto de calibração.
-
-    1. Espera _PREPARE_TIME s (usuário posiciona o olhar)
-    2. Captura frames filtrando piscadas (Shoelace openness > _BLINK_THRESHOLD)
-    3. Espera _WAIT_TIME s após completar
+    Delega a coleta ao TrackingService em segundo plano.
     """
+    import asyncio
     if not _collect_lock.acquire(blocking=False):
         return {"error": "Coleta já em andamento"}
 
     try:
-        import cv2
-        mp = _import_mediapipe()
-        import torch
-        from torchvision import transforms
-    except ImportError as exc:
-        _collect_lock.release()
-        return {"error": f"Dependência ausente: {exc}"}
+        from irisflow.api.main import tracking
+        if not tracking or tracking.engine_name != "iris-gaze-net":
+            return {"error": "Engine IrisGazeNet não ativo"}
 
-    try:
-        # Fase 1: espera prepare_time
-        time.sleep(_PREPARE_TIME)
-
-        _norm = dict(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-        tf_face = transforms.Compose([
-            transforms.ToPILImage(), transforms.Resize((224, 224)),
-            transforms.ToTensor(), transforms.Normalize(**_norm),
-        ])
-        tf_eye = transforms.Compose([
-            transforms.ToPILImage(), transforms.Resize((112, 112)),
-            transforms.ToTensor(), transforms.Normalize(**_norm),
-        ])
-
-        cap = _get_cap()
-        if cap is None or not cap.isOpened():
-            return {"error": "Nenhuma câmera disponível"}
-
-        face_mesh = mp.solutions.face_mesh.FaceMesh(
-            static_image_mode=False,
-            max_num_faces=1,
-            min_detection_confidence=0.5,
-        )
-
-        collected = 0
-        deadline = time.time() + 20.0  # timeout de 20 s por ponto
-
-        while collected < _N_FRAME_NEED and time.time() < deadline:
-            ret, frame = cap.read()
-            if not ret or frame is None:
-                continue
-
-            rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            results = face_mesh.process(rgb)
-            if not results.multi_face_landmarks:
-                continue
-
-            lm = results.multi_face_landmarks[0].landmark
-            h, w = frame.shape[:2]
-
-            # Filtro de piscada
-            left_open  = _eye_openness(lm, _LEFT_OPEN_IDX,  w, h)
-            right_open = _eye_openness(lm, _RIGHT_OPEN_IDX, w, h)
-            if left_open <= _BLINK_THRESHOLD or right_open <= _BLINK_THRESHOLD:
-                continue
-
-            # Face crop (478 landmarks, quadrado)
-            fx1, fy1, fx2, fy2 = _face_rect_478(lm, w, h)
-            if fx2 <= fx1 or fy2 <= fy1:
-                continue
-
-            scale = abs(lm[362].x - lm[133].x) * w / 100.0
-            lx1, ly1, lx2, ly2 = _eye_rect(lm, 33,  133, scale, w, h)
-            rx1, ry1, rx2, ry2 = _eye_rect(lm, 362, 263, scale, w, h)
-
-            if lx2 <= lx1 or ly2 <= ly1 or rx2 <= rx1 or ry2 <= ry1:
-                continue
-
-            face_crop  = frame[fy1:fy2, fx1:fx2]
-            left_crop  = frame[ly1:ly2, lx1:lx2]
-            right_crop = cv2.flip(frame[ry1:ry2, rx1:rx2], 1)
-
-            fw = fx2 - fx1;  fh = fy2 - fy1
-            lw = lx2 - lx1;  lh = ly2 - ly1
-            rw = rx2 - rx1;  rh = ry2 - ry1
-            denom = np.array([w, h, w, h, w, h, w, h, w, h, w, h], dtype=np.float32)
-            rect = np.array(
-                [fw, fh, fx1, fy1, lw, lh, lx1, ly1, rw, rh, rx1, ry1],
-                dtype=np.float32,
-            ) / denom
-
-            _cal_session["face_images"].append(tf_face(face_crop))
-            _cal_session["left_images"].append(tf_eye(left_crop))
-            _cal_session["right_images"].append(tf_eye(right_crop))
-            _cal_session["rects"].append(rect)
-            _cal_session["targets"].append([req.expected_x, req.expected_y])
-            _cal_session["point_ids"].append(req.point_index)
-            collected += 1
-
-        face_mesh.close()
-
-        # Fase 3: espera wait_time
-        time.sleep(_WAIT_TIME)
-
-        ready = collected >= _N_FRAME_NEED
-
+        # Inicia a coleta no background
+        tracking.start_collecting_point(req.point_index, req.expected_x, req.expected_y)
+        
+        # Aguarda a coleta finalizar sem bloquear o event loop
+        success = await asyncio.to_thread(tracking.wait_for_collection, 20.0)
+        if not success:
+            return {"error": "Timeout coletando frames. Verifique o enquadramento do rosto."}
+            
+        # Coleta os frames salvos
+        collected_data = tracking.get_collected_data()
+        
+        for item in collected_data:
+            _cal_session["face_images"].append(item["face_crop"])
+            _cal_session["left_images"].append(item["left_crop"])
+            _cal_session["right_images"].append(item["right_crop"])
+            _cal_session["rects"].append(item["rect"])
+            _cal_session["targets"].append(item["target"])
+            _cal_session["point_ids"].append(item["point_index"])
+            
         return {
             "point_index": req.point_index,
-            "collected": collected,
+            "collected": len(collected_data),
             "needed": _N_FRAME_NEED,
-            "ready": ready,
+            "ready": len(collected_data) >= _N_FRAME_NEED,
         }
-
     finally:
         _collect_lock.release()
 
@@ -431,7 +359,10 @@ def fit_calibration(body: FitCalibrationBody | None = None) -> dict:
             face_images, left_images, right_images, rects, targets,
             screen_w=screen_w,
             screen_h=screen_h,
-            svr_kernel="linear",
+            prediction_mode="svr",
+            svr_C=1.0,
+            svr_kernel="rbf",
+            svr_epsilon=0.05,
         )
 
         features = estimator.extractor.extract_numpy(
@@ -504,6 +435,14 @@ def fit_calibration(body: FitCalibrationBody | None = None) -> dict:
                 "screen_h": screen_h,
             },
         )
+
+    # Stop calibration mode in TrackingService
+    try:
+        from irisflow.api.main import tracking
+        if tracking:
+            tracking.stop()
+    except Exception as e:
+        logger.error(f"[CalibrationRoute] Erro ao parar calibração: {e}")
 
     return {
         "mae_x":     round(metrics["mae_x"], 1),

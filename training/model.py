@@ -135,6 +135,12 @@ class IrisGazeEstimator:
         self.screen_h: int = 1080
         self.training_diagnostics: dict = {}
         self.svr_kernel: str | None = None
+        self.prediction_mode: str = "svr"
+        self.pca = None
+        self.pca_pre = None
+        self.calibration_features_latent: np.ndarray | None = None
+        self.calibration_targets: np.ndarray | None = None
+        self.knn_neighbors: int = 12
 
     def calibrate(
         self,
@@ -145,11 +151,12 @@ class IrisGazeEstimator:
         targets: np.ndarray,
         screen_w: int = 1920,
         screen_h: int = 1080,
-        svr_kernel: str = "linear",
-        svr_C: float = 10.0,
+        svr_kernel: str = "rbf",
+        svr_C: float = 1.0,
         svr_gamma: str = "scale",
-        svr_epsilon: float = 0.1,
+        svr_epsilon: float = 0.05,
         features: "np.ndarray | None" = None,
+        prediction_mode: str = "svr",
     ) -> dict:
         """
         Treina SVR-X e SVR-Y com dados de calibração do paciente.
@@ -173,6 +180,7 @@ class IrisGazeEstimator:
         self.screen_w = screen_w
         self.screen_h = screen_h
         self.svr_kernel = svr_kernel
+        self.prediction_mode = prediction_mode
 
         if features is None:
             features = self.extractor.extract_numpy(
@@ -183,6 +191,11 @@ class IrisGazeEstimator:
 
         self.scaler = StandardScaler()
         features_scaled = self.scaler.fit_transform(features)
+
+        from sklearn.decomposition import PCA
+        n_components = max(1, min(50, len(targets) - 1, features_scaled.shape[1]))
+        self.pca_pre = PCA(n_components=n_components, random_state=42)
+        features_scaled_pca = self.pca_pre.fit_transform(features_scaled)
 
         baseline_x = np.full(len(targets), float(np.mean(targets[:, 0])))
         baseline_y = np.full(len(targets), float(np.mean(targets[:, 1])))
@@ -196,15 +209,18 @@ class IrisGazeEstimator:
         self.svr_y = SVR(
             kernel=svr_kernel, C=svr_C, gamma=svr_gamma, epsilon=svr_epsilon
         )
-        self.svr_x.fit(features_scaled, targets[:, 0])
-        self.svr_y.fit(features_scaled, targets[:, 1])
+        self.svr_x.fit(features_scaled_pca, targets[:, 0])
+        self.svr_y.fit(features_scaled_pca, targets[:, 1])
+        self._fit_calibration_memory(features_scaled, targets)
         self.is_calibrated = True
 
-        pred_x = self.svr_x.predict(features_scaled)
-        pred_y = self.svr_y.predict(features_scaled)
-        mae_x = float(np.mean(np.abs(pred_x - targets[:, 0])))
-        mae_y = float(np.mean(np.abs(pred_y - targets[:, 1])))
-        preds = np.column_stack([pred_x, pred_y])
+        svr_preds = np.column_stack([
+            self.svr_x.predict(features_scaled_pca),
+            self.svr_y.predict(features_scaled_pca),
+        ])
+        preds = self.predict_from_features(features, clamp=True)
+        mae_x = float(np.mean(np.abs(preds[:, 0] - targets[:, 0])))
+        mae_y = float(np.mean(np.abs(preds[:, 1] - targets[:, 1])))
 
         self.training_diagnostics = self.build_training_diagnostics(
             features=features,
@@ -220,6 +236,15 @@ class IrisGazeEstimator:
                 },
                 {
                     "stage": f"svr_{svr_kernel}_fit",
+                    "mae_x": float(np.mean(np.abs(svr_preds[:, 0] - targets[:, 0]))),
+                    "mae_y": float(np.mean(np.abs(svr_preds[:, 1] - targets[:, 1]))),
+                    "mae_total": float(np.sqrt(
+                        np.mean(np.abs(svr_preds[:, 0] - targets[:, 0])) ** 2
+                        + np.mean(np.abs(svr_preds[:, 1] - targets[:, 1])) ** 2
+                    )),
+                },
+                {
+                    "stage": prediction_mode,
                     "mae_x": mae_x,
                     "mae_y": mae_y,
                     "mae_total": float(np.sqrt(mae_x**2 + mae_y**2)),
@@ -239,8 +264,19 @@ class IrisGazeEstimator:
             "target_span_x": self.training_diagnostics["target_span"]["x"],
             "target_span_y": self.training_diagnostics["target_span"]["y"],
             "svr_kernel": svr_kernel,
+            "prediction_mode": self.prediction_mode,
             "diagnostics": self.training_diagnostics,
         }
+
+    def _fit_calibration_memory(self, features_scaled: np.ndarray, targets: np.ndarray) -> None:
+        from sklearn.decomposition import PCA
+
+        n_samples, n_features = features_scaled.shape
+        n_components = max(2, min(24, n_samples - 1, n_features))
+        self.pca = PCA(n_components=n_components, random_state=42)
+        self.calibration_features_latent = self.pca.fit_transform(features_scaled).astype(np.float32)
+        self.calibration_targets = np.asarray(targets, dtype=np.float32)
+        self.knn_neighbors = max(3, min(18, n_samples))
 
     def build_training_diagnostics(
         self,
@@ -279,13 +315,38 @@ class IrisGazeEstimator:
         if features.ndim == 1:
             features = features.reshape(1, -1)
         features_scaled = self.scaler.transform(features)
-        pred_x = self.svr_x.predict(features_scaled)
-        pred_y = self.svr_y.predict(features_scaled)
-        preds = np.column_stack([pred_x, pred_y]).astype(np.float32)
+        if (
+            self.prediction_mode == "calibration_knn"
+            and self.pca is not None
+            and self.calibration_features_latent is not None
+            and self.calibration_targets is not None
+        ):
+            latent = self.pca.transform(features_scaled).astype(np.float32)
+            preds = self._predict_calibration_knn(latent)
+        else:
+            if self.pca_pre is not None:
+                features_for_svr = self.pca_pre.transform(features_scaled)
+            else:
+                features_for_svr = features_scaled
+            pred_x = self.svr_x.predict(features_for_svr)
+            pred_y = self.svr_y.predict(features_for_svr)
+            preds = np.column_stack([pred_x, pred_y]).astype(np.float32)
         if clamp:
             preds[:, 0] = np.clip(preds[:, 0], 0.0, float(self.screen_w))
             preds[:, 1] = np.clip(preds[:, 1], 0.0, float(self.screen_h))
         return preds
+
+    def _predict_calibration_knn(self, latent: np.ndarray) -> np.ndarray:
+        preds: list[np.ndarray] = []
+        n_neighbors = min(self.knn_neighbors, len(self.calibration_features_latent))
+        for row in latent:
+            distances = np.linalg.norm(self.calibration_features_latent - row, axis=1)
+            neighbor_idx = np.argpartition(distances, n_neighbors - 1)[:n_neighbors]
+            neighbor_dist = distances[neighbor_idx]
+            weights = 1.0 / np.maximum(neighbor_dist, 1e-3) ** 2
+            weights = weights / np.sum(weights)
+            preds.append(weights @ self.calibration_targets[neighbor_idx])
+        return np.asarray(preds, dtype=np.float32)
 
     def predict(
         self,
@@ -340,6 +401,12 @@ class IrisGazeEstimator:
             "feature_dim": self.extractor.output_dim(),
             "feature_version": 2,
             "svr_kernel": self.svr_kernel,
+            "prediction_mode": self.prediction_mode,
+            "pca": self.pca,
+            "pca_pre": self.pca_pre,
+            "calibration_features_latent": self.calibration_features_latent,
+            "calibration_targets": self.calibration_targets,
+            "knn_neighbors": self.knn_neighbors,
             "training_diagnostics": self.training_diagnostics,
             "architecture": "MobileNetV2+SVR multi-fonte (IrisFlow v2, GazeFollower)",
         }
@@ -374,6 +441,12 @@ class IrisGazeEstimator:
         obj.screen_w = data["screen_w"]
         obj.screen_h = data["screen_h"]
         obj.svr_kernel = data.get("svr_kernel")
+        obj.prediction_mode = data.get("prediction_mode", "svr")
+        obj.pca = data.get("pca")
+        obj.pca_pre = data.get("pca_pre")
+        obj.calibration_features_latent = data.get("calibration_features_latent")
+        obj.calibration_targets = data.get("calibration_targets")
+        obj.knn_neighbors = data.get("knn_neighbors", 12)
         obj.training_diagnostics = data.get("training_diagnostics", {})
         return obj
 

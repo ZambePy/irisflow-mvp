@@ -88,7 +88,6 @@ function GazeBtn({
   ...props
 }) {
   const ref = useRef(null)
-  const { connected } = useGazeSocket()
   const { onMouseEnter: dwellEnter, onMouseLeave: dwellLeave } = useDwell(onClick ?? (() => {}))
 
   function handleMouseMove(e) {
@@ -109,7 +108,7 @@ function GazeBtn({
       ref={ref}
       className={`if-dwell group ${glowClass} ${className}`}
       style={style}
-      onMouseEnter={connected ? undefined : dwellEnter}
+      onMouseEnter={dwellEnter}
       onMouseLeave={handleMouseLeave}
       onMouseMove={magnetic ? handleMouseMove : undefined}
       onClick={onClick}

@@ -18,20 +18,27 @@ _POLL_INTERVAL = 0.05  # 20 fps
 
 
 def _read_cursor() -> tuple[float, float]:
-    """Lê posição global do cursor sem depender do Qt."""
+    """Lê posição do cursor normalizada (0.0–1.0) relativa à resolução do ecrã."""
     if sys.platform == "win32":
         class _POINT(ctypes.Structure):
             _fields_ = [("x", ctypes.c_long), ("y", ctypes.c_long)]
         pt = _POINT()
         ctypes.windll.user32.GetCursorPos(ctypes.byref(pt))
-        return float(pt.x), float(pt.y)
-    # Fallback: tenta via Qt, senão usa centro de tela
+        screen_w = ctypes.windll.user32.GetSystemMetrics(0) or 1920
+        screen_h = ctypes.windll.user32.GetSystemMetrics(1) or 1080
+        return float(pt.x) / screen_w, float(pt.y) / screen_h
+    # Fallback via Qt
     try:
         from PyQt6.QtGui import QCursor
+        from PyQt6.QtWidgets import QApplication
         pos = QCursor.pos()
-        return float(pos.x()), float(pos.y())
+        screen = QApplication.primaryScreen()
+        if screen:
+            size = screen.size()
+            return float(pos.x()) / size.width(), float(pos.y()) / size.height()
+        return 0.5, 0.5
     except Exception:
-        return 960.0, 540.0
+        return 0.5, 0.5
 
 
 class MockGazeEngine(BaseGazeEngine):

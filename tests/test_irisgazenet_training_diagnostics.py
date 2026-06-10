@@ -33,6 +33,6 @@ def test_calibrate_records_diagnostics_and_varied_predictions():
     assert diagnostics["features"]["std"] > 0
     assert len(diagnostics["first_5_labels"]) == 5
     assert len(diagnostics["first_5_predictions_before_smoothing"]) == 5
-    assert len(diagnostics["train_loss_progression"]) == 2
+    assert len(diagnostics["train_loss_progression"]) == 3
     assert metrics["prediction_span_x"] > 24.0
     assert metrics["prediction_span_y"] > 24.0

@@ -7,10 +7,11 @@ from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
 
+from irisflow.core.paths import get_user_data_dir
 from irisflow.profiles.profile import Profile
 from irisflow.core.logger import logger
 
-_STORE_PATH = Path(__file__).parent / "profiles.json"
+_STORE_PATH = get_user_data_dir() / "profiles.json"
 
 
 class ProfileStore:

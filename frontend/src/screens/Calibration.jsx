@@ -9,9 +9,10 @@ import { API_BASE_URL } from '../config/api'
 // ── Constantes ────────────────────────────────────────────────────────────────
 
 const GRID_POINTS = [
-  { x: 0.10, y: 0.10 }, { x: 0.50, y: 0.10 }, { x: 0.90, y: 0.10 },
-  { x: 0.10, y: 0.50 }, { x: 0.50, y: 0.50 }, { x: 0.90, y: 0.50 },
-  { x: 0.10, y: 0.90 }, { x: 0.50, y: 0.90 }, { x: 0.90, y: 0.90 },
+  { x: 0.10, y: 0.10 }, { x: 0.37, y: 0.10 }, { x: 0.63, y: 0.10 }, { x: 0.90, y: 0.10 },
+  { x: 0.10, y: 0.37 }, { x: 0.37, y: 0.37 }, { x: 0.63, y: 0.37 }, { x: 0.90, y: 0.37 },
+  { x: 0.10, y: 0.63 }, { x: 0.37, y: 0.63 }, { x: 0.63, y: 0.63 }, { x: 0.90, y: 0.63 },
+  { x: 0.10, y: 0.90 }, { x: 0.37, y: 0.90 }, { x: 0.63, y: 0.90 }, { x: 0.90, y: 0.90 },
 ]
 
 const DWELL_MS     = 2000
@@ -347,7 +348,7 @@ export default function Calibration() {
               <div className="mb-16">
                 <h1 className="font-headline-lg text-display-lg text-primary mb-4">Calibração do Olhar</h1>
                 <p className="font-body-lg text-on-surface-variant max-w-2xl mx-auto">
-                  9 pontos na tela. Olhe para cada um e aguarde o anel completar.
+                  16 pontos na tela. Olhe para cada um e aguarde o anel completar.
                   Mantenha a cabeça estável para máxima precisão.
                 </p>
               </div>

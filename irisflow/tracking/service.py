@@ -42,6 +42,32 @@ class TrackingService:
     def status_message(self) -> str | None:
         return getattr(self._engine, "status_message", None)
 
+    @property
+    def state(self) -> str:
+        return getattr(self._engine, "state", "running" if self.is_running() else "idle")
+
+    @property
+    def metrics(self) -> dict | None:
+        return getattr(self._engine, "metrics", None)
+
+    def start_collecting_point(self, point_index: int, expected_x: float, expected_y: float) -> None:
+        if hasattr(self._engine, "start_collecting_point"):
+            self._engine.start_collecting_point(point_index, expected_x, expected_y)
+
+    def wait_for_collection(self, timeout: float = 20.0) -> bool:
+        if hasattr(self._engine, "wait_for_collection"):
+            return self._engine.wait_for_collection(timeout)
+        return False
+
+    def get_collected_data(self) -> list[dict]:
+        if hasattr(self._engine, "get_collected_data"):
+            return self._engine.get_collected_data()
+        return []
+
+    def start_calibration_mode(self) -> None:
+        if hasattr(self._engine, "start_calibration_mode"):
+            self._engine.start_calibration_mode()
+
     def _on_gaze(self, point: GazePoint) -> None:
         for cb in self._listeners:
             cb(point)

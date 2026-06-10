@@ -15,12 +15,15 @@ export default function GazeCursor() {
     return () => window.removeEventListener('mousemove', handleMove)
   }, [])
 
-  if (!gazePoint || (gazePoint.x === 0 && gazePoint.y === 0)) return null
+  if (!gazePoint || gazePoint.x == null || gazePoint.y == null) return null
+
+  const cursorX = gazePoint.x * window.innerWidth
+  const cursorY = gazePoint.y * window.innerHeight
 
   return (
     <div
       className="fixed top-0 left-0 w-12 h-12 border-2 border-secondary rounded-full flex items-center justify-center pointer-events-none z-[9999]"
-      style={{ left: gazePoint.x, top: gazePoint.y, transform: 'translate(-50%, -50%)' }}
+      style={{ left: cursorX, top: cursorY, transform: 'translate(-50%, -50%)' }}
     >
       <svg className="w-full h-full -rotate-90" viewBox="0 0 48 48">
         <circle

@@ -98,9 +98,22 @@ async def health() -> dict:
     return {
         "status": "ok",
         "tracking": tracking.is_running() if tracking else False,
+        "state": tracking.state if tracking else "idle",
         "engine": tracking.engine_name if tracking else None,
         "tracking_message": tracking.status_message if tracking else None,
     }
+
+
+@app.get("/debug/metrics")
+async def debug_metrics() -> dict:
+    """Retorna métricas detalhadas do pipeline em tempo real."""
+    if tracking:
+        return {
+            "engine": tracking.engine_name,
+            "state": tracking.state,
+            "metrics": tracking.metrics,
+        }
+    return {"error": "TrackingService não inicializado"}
 
 
 # ── WebSocket ─────────────────────────────────────────────────────────────────
@@ -131,8 +144,10 @@ async def handle_message(websocket: WebSocket, message: dict) -> None:
         await manager.send_to(websocket, {
             "type": "tracking_status",
             "running": tracking.is_running() if tracking else False,
+            "state": tracking.state if tracking else "idle",
             "engine": tracking.engine_name if tracking else None,
             "message": tracking.status_message if tracking else None,
+            "metrics": tracking.metrics if tracking else None,
         })
 
     elif msg_type == "set_engine":
@@ -192,6 +207,11 @@ async def _start_tracking_engine(engine_name: str) -> None:
                 f"x={point.x:.1f} y={point.y:.1f} raw=({point.raw_x:.1f},{point.raw_y:.1f}) "
                 f"state={point.tracking_state}"
             )
+        
+        # Registra envio de WebSocket para telemetria
+        if tracking and hasattr(tracking._engine, "_metrics"):
+            tracking._engine._metrics.record_websocket()
+
         asyncio.run_coroutine_threadsafe(
             manager.broadcast({
                 "type": "gaze",

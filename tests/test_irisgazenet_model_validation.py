@@ -25,6 +25,7 @@ class _Estimator:
     scaler = object()
     svr_x = _DynamicSvr()
     svr_y = _DynamicSvr()
+    prediction_mode = "calibration_knn"
     training_diagnostics = {
         "validation_prediction_span": {"x": 80.0, "y": 80.0}
     }
@@ -53,6 +54,7 @@ def test_irisgazenet_rejects_static_model():
             "scaler": object(),
             "svr_x": _StaticSvr(),
             "svr_y": _DynamicSvr(),
+            "prediction_mode": "calibration_knn",
         },
     )()
 
@@ -77,6 +79,7 @@ def test_irisgazenet_rejects_legacy_model_without_saved_validation():
             "scaler": object(),
             "svr_x": _DynamicSvr(),
             "svr_y": _DynamicSvr(),
+            "prediction_mode": "calibration_knn",
             "training_diagnostics": {},
         },
     )()
@@ -95,6 +98,7 @@ def test_irisgazenet_rejects_saved_static_calibration_validation():
             "scaler": object(),
             "svr_x": _DynamicSvr(),
             "svr_y": _DynamicSvr(),
+            "prediction_mode": "calibration_knn",
             "training_diagnostics": {
                 "validation_prediction_span": {"x": 0.0, "y": 80.0}
             },
