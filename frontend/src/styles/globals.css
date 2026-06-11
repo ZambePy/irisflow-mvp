@@ -1,0 +1,140 @@
+@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  .material-symbols-outlined {
+    font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+  }
+
+  body {
+    background-color: #0A0C10;
+    cursor: none;
+    overflow: hidden;
+  }
+}
+
+@layer components {
+  .glass-panel {
+    background: rgba(255, 255, 255, 0.05);
+    backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+  }
+
+  .glass-card {
+    background: rgba(51, 53, 57, 0.1);
+    backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+  }
+
+  .glass-key {
+    background: rgba(255, 255, 255, 0.05);
+    backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .gaze-glow {
+    transition: all 0.2s ease;
+  }
+
+  .gaze-glow:hover {
+    box-shadow: 0 0 25px rgba(0, 166, 147, 0.4);
+    border-color: #00A693;
+    transform: scale(1.02);
+  }
+
+  .glass-key:hover {
+    border-width: 3px;
+    border-color: #00A693;
+    box-shadow: 0 0 20px rgba(0, 166, 147, 0.4);
+    transform: scale(1.02);
+  }
+
+  /* Barra de progresso dwell — anima no hover do elemento pai */
+  .dwell-bar {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    height: 4px;
+    background: #5bdac6;
+    width: 0%;
+    transition: none;
+  }
+
+  .dwell-bar-active {
+    width: 100%;
+    transition: width var(--dwell-ms, 1500ms) linear;
+  }
+
+  [data-dwell-target] {
+    position: relative;
+    overflow: hidden;
+  }
+
+  [data-dwell-target]::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 5px;
+    background: #5bdac6;
+    pointer-events: none;
+    transform: scaleX(var(--gaze-dwell-progress, 0));
+    transform-origin: left center;
+    transition: transform 80ms linear;
+    z-index: 30;
+  }
+
+  [data-dwell-target][data-gaze-dwell-active='true'] {
+    outline: 2px solid rgba(91, 218, 198, 0.8);
+    outline-offset: -2px;
+  }
+}
+
+@layer utilities {
+  @keyframes pulse-red {
+    0%   { box-shadow: 0 0 0 0 rgba(230, 57, 70, 0.7); }
+    70%  { box-shadow: 0 0 0 20px rgba(230, 57, 70, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(230, 57, 70, 0); }
+  }
+
+  .emergency-pulse {
+    animation: pulse-red 2s infinite;
+  }
+
+  @keyframes pulse-emergency {
+    0%, 100% { box-shadow: 0 0 10px rgba(255, 180, 171, 0.4); }
+    50%       { box-shadow: 0 0 40px rgba(255, 180, 171, 0.8); }
+  }
+  .pulse-emergency {
+    animation: pulse-emergency 2s infinite;
+  }
+
+  @keyframes rotate-slow {
+    from { transform: rotate(0deg); }
+    to   { transform: rotate(360deg); }
+  }
+
+  .shutter-ring {
+    border: 2px dashed #00A693;
+    animation: rotate-slow 20s linear infinite;
+  }
+
+  @keyframes scan {
+    0%   { top: -100px; }
+    100% { top: 100%; }
+  }
+
+  .scanline {
+    background: linear-gradient(to bottom, transparent, rgba(0, 166, 147, 0.2), transparent);
+    height: 100px;
+    width: 100%;
+    position: absolute;
+    animation: scan 3s linear infinite;
+  }
+}
